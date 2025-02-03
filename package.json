@@ -1,21 +1,25 @@
 {
   "name": "packages-syncer",
   "displayName": "Packages Syncer",
-  "description": "",
-  "version": "0.0.1",
+  "description": "Watching package-lock.json and installing dependencies if changed",
+  "version": "1.0.0",
   "engines": {
     "vscode": "^1.96.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished",
+    "workspaceContains:**/package.json"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "packages-syncer.helloWorld",
-        "title": "Hello World"
+        "command": "packages-syncer.showOutputChannel",
+        "title": "Show Output Channel",
+        "category": "Packages Syncer"
       }
     ]
   },
