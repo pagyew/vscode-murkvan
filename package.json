@@ -18,6 +18,9 @@
     "Watcher"
   ],
   "license": "MIT",
+  "repository": {
+    "url": "https://github.com/pagyew/vscode-packages-syncer"
+  },
   "activationEvents": [
     "onStartupFinished",
     "workspaceContains:**/package.json"
