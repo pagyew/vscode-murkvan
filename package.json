@@ -3,12 +3,21 @@
   "displayName": "Packages Syncer",
   "description": "Watching package-lock.json and installing dependencies if changed",
   "version": "1.0.0",
+  "publisher": "pagyew",
   "engines": {
     "vscode": "^1.96.0"
   },
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "Packages Syncer",
+    "lock files",
+    "npm",
+    "Watch",
+    "Watcher"
+  ],
+  "license": "MIT",
   "activationEvents": [
     "onStartupFinished",
     "workspaceContains:**/package.json"

@@ -1,71 +1,66 @@
-# packages-syncer README
+# Packages Syncer
 
-This is the README for your extension "packages-syncer". After writing up a brief description, we recommend including the following sections.
+Watch package lock files and suggest to re-run npm.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- `npm` support
 
-For example if there is an image subfolder under your extension project workspace:
+## Install
 
-\!\[feature X\]\(images/feature-x.png\)
+Install options:
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+- Install from the command line: `code --install-extension pagyew.packages-syncer`
+- Search for `Packages Syncer` in the VS Code extensions panel
 
 ## Requirements
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+- Use either `npm` in your project
+- A `node_modules` directory
 
-## Extension Settings
+## Extension Commands
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
+| Setting                            | Description             |
+| :--------------------------------- | :---------------------- |
+| `packages-syncer.showOutputChannel` | Show the output channel |
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
+See [Changelog](./CHANGELOG.md)
 
-### 1.0.0
+## Publish
 
-Initial release of ...
+Publish a new version:
 
-### 1.0.1
+1. Update `CHANGELOG.md` and add a new version
+2. Publish with `vsce`
 
-Fixed issue #.
+```
+npm i -g vsce
+vsce publish patch
+```
 
-### 1.1.0
+## FAQ
 
-Added features X, Y, and Z.
+### How does the extension work?
 
----
+- Activate if there are 1 or multiple `package.json` file(s) within the workspace.
+- Watch for changes to `yarn.lock` or `package-lock.json` files.
+- When there are changes, ensure a sibling `node_modules` directory already exists. If not, don't do anything.
+- When a `node_modules` directory exist either:
+  - Ping the user to run the install command: `request` mode
+  - Automatically run the install command: `auto` mode
 
-## Following extension guidelines
+### How does the monorepo support work?
 
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
+We only run the install command in directories which have a `node_modules` directory. If that doesn't exist, we will not run the package install command.
 
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
+### The extension doesn't seem to work, what can I do to debug?
 
-## Working with Markdown
+Validate the following:
 
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
+1. `package.json` exists in the VSCode workspace.
+2. `yarn.lock` or `package-lock.json` file exists in the VSCode workspace.
+3. `node_modules` directory lives next to the `package.json` directory.
 
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+Then restart your editor and copy/paste the output in the `Package Watcher` output log. You can see this log by clicking on `Package Watcher` in the status bar.
