@@ -5,7 +5,7 @@ let statusBarItem: vscode.StatusBarItem;
 const activate = () => {
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right);
   statusBarItem.show();
-  statusBarItem.command = "packages-syncer.showOutputChannel";
+  statusBarItem.command = "murkvan.showOutputChannel";
 };
 
 const update = ({

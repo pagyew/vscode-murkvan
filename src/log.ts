@@ -2,9 +2,9 @@ import * as vscode from "vscode";
 
 type LogLevel = "info" | "debug" | "off";
 
-const OUTPUT_CHANNEL_NAME = "Packages Syncer";
+const OUTPUT_CHANNEL_NAME = "Murkvan";
 const LOG_LEVEL_SETTING = "logLevel";
-const SETTINGS_NAMESPACE = "packages-syncer";
+const SETTINGS_NAMESPACE = "murkvan";
 
 class Log {
   private _outputChannel: vscode.OutputChannel;
