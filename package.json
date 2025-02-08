@@ -1,6 +1,6 @@
 {
-  "name": "packages-syncer",
-  "displayName": "Packages Syncer",
+  "name": "murkvan",
+  "displayName": "Murkvan",
   "description": "Watching package-lock.json and installing dependencies if changed",
   "version": "1.0.0",
   "publisher": "pagyew",
@@ -11,15 +11,17 @@
     "Other"
   ],
   "keywords": [
-    "Packages Syncer",
+    "Murkvan",
+    "package",
+    "sync",
     "lock files",
     "npm",
-    "Watch",
-    "Watcher"
+    "watch",
+    "watcher"
   ],
   "license": "MIT",
   "repository": {
-    "url": "https://github.com/pagyew/vscode-packages-syncer"
+    "url": "https://github.com/pagyew/vscode-murkvan"
   },
   "activationEvents": [
     "onStartupFinished",
@@ -29,9 +31,9 @@
   "contributes": {
     "commands": [
       {
-        "command": "packages-syncer.showOutputChannel",
+        "command": "murkvan.showOutputChannel",
         "title": "Show Output Channel",
-        "category": "Packages Syncer"
+        "category": "Murkvan"
       }
     ]
   },

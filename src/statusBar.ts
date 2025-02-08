@@ -3,9 +3,7 @@ import * as vscode from "vscode";
 let statusBarItem: vscode.StatusBarItem;
 
 const activate = () => {
-  statusBarItem = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right
-  );
+  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right);
   statusBarItem.show();
   statusBarItem.command = "packages-syncer.showOutputChannel";
 };
@@ -14,10 +12,10 @@ const update = ({
   icon,
   tooltip,
 }: {
-  icon: "loading" | "check-all" | "error";
+  icon: "sync~spin" | "eye" | "error";
   tooltip: string;
 }) => {
-  statusBarItem.text = `$(${icon}) Packages Syncer`;
+  statusBarItem.text = `$(${icon}) $(package)`;
   statusBarItem.tooltip = tooltip;
 };
 
