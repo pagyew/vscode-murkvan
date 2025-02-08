@@ -1,4 +1,4 @@
-# Packages Syncer
+# Murkvan
 
 Watch package lock files and suggest to re-run npm.
 
@@ -10,8 +10,8 @@ Watch package lock files and suggest to re-run npm.
 
 Install options:
 
-- Install from the command line: `code --install-extension pagyew.packages-syncer`
-- Search for `Packages Syncer` in the VS Code extensions panel
+- Install from the command line: `code --install-extension pagyew.murkvan`
+- Search for `Murkvan` in the VS Code extensions panel
 
 ## Requirements
 
@@ -22,7 +22,7 @@ Install options:
 
 | Setting                            | Description             |
 | :--------------------------------- | :---------------------- |
-| `packages-syncer.showOutputChannel` | Show the output channel |
+| `murkvan.showOutputChannel` | Show the output channel |
 
 ## Release Notes
 
@@ -63,4 +63,4 @@ Validate the following:
 2. `yarn.lock` or `package-lock.json` file exists in the VSCode workspace.
 3. `node_modules` directory lives next to the `package.json` directory.
 
-Then restart your editor and copy/paste the output in the `Package Watcher` output log. You can see this log by clicking on `Package Watcher` in the status bar.
+Then restart your editor and copy/paste the output in the `Murkvan` output log. You can see this log by clicking on `Murkvan` in the status bar.
