@@ -7,7 +7,7 @@
   "icon": "images/logo.png",
   "pricing": "Free",
   "galleryBanner": {
-    "color": "#7599A0",
+    "color": "#F7F7ED",
     "theme": "light"
   },
   "engines": {
