@@ -3,7 +3,7 @@
   "author": "Vladislav Tsepilov <https://github.com/pagyew>",
   "displayName": "Murkvan",
   "description": "Watching package.json and installing dependencies if changed",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "pagyew",
   "icon": "images/logo.png",
   "pricing": "Free",
