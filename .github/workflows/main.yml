@@ -28,6 +28,15 @@ jobs:
       - run: npm test
         if: runner.os != 'Linux'
 
+      - name: Publish1
+        run: echo "Success"
+        if: success()
+      - name: Publish2
+        run: echo "StartWith"
+        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish3
+        run: echo "ubuntu-latest"
+        if: matrix.os == 'ubuntu-latest'
       - name: Publish
         run: npm run deploy
         if: success() && startsWith(github.ref, 'refs/tags/') && matrix.os == 'ubuntu-latest'
