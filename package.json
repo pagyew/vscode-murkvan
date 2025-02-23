@@ -4,6 +4,12 @@
   "description": "Watching package.json and installing dependencies if changed",
   "version": "1.0.0",
   "publisher": "pagyew",
+  "icon": "images/icon.png",
+  "pricing": "Free",
+  "galleryBanner": {
+    "color": "#7599A0",
+    "theme": "light"
+  },
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -20,9 +26,15 @@
     "watch"
   ],
   "license": "MIT",
-  "repository": {
-    "url": "https://github.com/pagyew/vscode-murkvan"
+  "bugs": {
+    "url": "https://github.com/pagyew/vscode-murkvan/issues",
+    "email": "fickleprogger@gmail.com"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pagyew/vscode-murkvan.git"
+  },
+  "homepage": "https://github.com/pagyew/vscode-murkvan/blob/main/README.md",
   "activationEvents": [
     "onStartupFinished",
     "workspaceContains:**/package.json"
@@ -38,6 +50,7 @@
     ]
   },
   "scripts": {
+    "deploy": "vsce publish --yarn",
     "vscode:prepublish": "npm run package",
     "compile": "npm run check-types && npm run lint && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
@@ -59,6 +72,7 @@
     "@typescript-eslint/parser": "^8.17.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.2.2",
     "chokidar": "^4.0.3",
     "esbuild": "^0.24.0",
     "eslint": "^9.16.0",
