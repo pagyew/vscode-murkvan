@@ -1,7 +1,7 @@
 {
   "name": "murkvan",
   "displayName": "Murkvan",
-  "description": "Watching package-lock.json and installing dependencies if changed",
+  "description": "Watching package.json and installing dependencies if changed",
   "version": "1.0.0",
   "publisher": "pagyew",
   "engines": {
@@ -16,8 +16,8 @@
     "sync",
     "lock files",
     "npm",
-    "watch",
-    "watcher"
+    "arc",
+    "watch"
   ],
   "license": "MIT",
   "repository": {
