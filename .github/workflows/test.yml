@@ -1,8 +1,9 @@
 name: Test
 
 on:
-  release:
-    types: [created,deleted,edited,prereleased,published,released,unpublished]
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   test:
