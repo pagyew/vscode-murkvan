@@ -13,8 +13,7 @@ class Log {
   private _disposable: vscode.Disposable;
 
   constructor() {
-    this._outputChannel =
-      vscode.window.createOutputChannel(OUTPUT_CHANNEL_NAME);
+    this._outputChannel = vscode.window.createOutputChannel(OUTPUT_CHANNEL_NAME);
     this._disposable = vscode.workspace.onDidChangeConfiguration(() => {
       this.updateConfiguration();
     });
@@ -26,10 +25,8 @@ class Log {
       return;
     }
 
-    const timeStamp =
-      this._logLevel === "debug" ? ` ${new Date().getTime() / 1000}s` : "";
+    const timeStamp = this._logLevel === "debug" ? ` ${new Date().getTime() / 1000}s` : "";
 
-    // Colors: https://git.io/JYsim
     this._outputChannel.appendLine(`[${tag}${timeStamp}] ${message}`);
   }
 

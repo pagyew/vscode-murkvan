@@ -1,22 +1,32 @@
 import * as vscode from "vscode";
 
 let statusBarItem: vscode.StatusBarItem;
+let extensionName: string;
 
-const activate = () => {
-  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right);
-  statusBarItem.show();
-  statusBarItem.command = "murkvan.showOutputChannel";
+const Status = {
+  idle: "eye",
+  syncing: "sync~spin",
+  error: "error",
 };
 
-const update = ({
-  icon,
-  tooltip,
-}: {
-  icon: "sync~spin" | "eye" | "error";
-  tooltip: string;
-}) => {
-  statusBarItem.text = `$(${icon}) $(package)`;
-  statusBarItem.tooltip = tooltip;
+type Status = keyof typeof Status;
+
+const Tooltip = {
+  idle: "Watching package.json",
+  syncing: "Syncing packages...",
+  error: "Error",
+};
+
+const activate = (name: string) => {
+  extensionName = name;
+  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right);
+  statusBarItem.command = "murkvan.showOutputChannel";
+  statusBarItem.show();
+};
+
+const updateStatus = (status: Status) => {
+  statusBarItem.text = `${extensionName}: $(${Status[status]})`;
+  statusBarItem.tooltip = Tooltip[status];
 };
 
 const dispose = () => {
@@ -28,4 +38,4 @@ const get = () => {
   return statusBarItem;
 };
 
-export default { activate, dispose, get, update };
+export default { activate, dispose, get, updateStatus };

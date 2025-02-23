@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import log from './log';
+import statusBar from './statusBar';
 import path from 'node:path';
 import vscode from 'vscode';
 import chokidar from 'chokidar';
@@ -8,9 +9,11 @@ const {Created, Changed, Deleted} = vscode.FileChangeType;
 const {window, workspace, commands} = vscode;
 
 const PACKAGE_FILENAME = 'package.json';
-const PACKAGE_LOCK_FILENAME = 'package-lock.json';
 
-let statusBar: vscode.StatusBarItem;
+function getMD5Hash(filePath: string) {
+	const md5Command = spawnSync('md5', [filePath]);
+	return md5Command.stdout.toString().split('=')[1].trim();
+}
 
 export async function activate(context: vscode.ExtensionContext) {
 	const { extension, subscriptions } = context;
@@ -18,24 +21,23 @@ export async function activate(context: vscode.ExtensionContext) {
 	const extensionName = extension.packageJSON.displayName;
 	const showOutputChannelCommand = `${extensionId}.showOutputChannel`;
 
+	statusBar.activate(extensionName);
+
 	const [packageFile] = await workspace.findFiles(PACKAGE_FILENAME, null, 1);
-	const [packageLockFile] = await workspace.findFiles(PACKAGE_LOCK_FILENAME, null, 1);
 
 	if (!packageFile) {
 		log.error('No package.json found');
 	}
 
-	if (!packageLockFile) {
-		log.error('No package-lock.json found');
-	}
+	const packageHash = getMD5Hash(packageFile.fsPath);
 
-	statusBar = window.createStatusBarItem(vscode.StatusBarAlignment.Right);
-	statusBar.command = showOutputChannelCommand;
-	statusBar.text = `${extensionName}: $(eye)`;
-	statusBar.tooltip = 'Watching package-lock.json';
+	context.workspaceState.update('packageHash', packageHash);
+
+	log.info(`Package.json hash: ${packageHash}`);
+
+	statusBar.updateStatus('idle');
 
 	const packageWatcher = workspace.createFileSystemWatcher(packageFile.fsPath);
-	const packageLockWatcher = workspace.createFileSystemWatcher(packageLockFile.fsPath);
 	const watchers = [packageWatcher];
 
 	function createListener(uri: vscode.Uri) {
@@ -58,18 +60,30 @@ export async function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		statusBar.text = `${extensionName}: $(sync~spin)`;
-		statusBar.tooltip = 'Syncing packages...';
+		const currentHash = getMD5Hash(packageFile.fsPath);
+		const previousHash = context.workspaceState.get('packageHash');
 
-		let progressResolver = (value?: unknown) => {};
+		log.info(`Package.json hash: ${currentHash}`);
+		
+		if (currentHash === previousHash) {
+			return;
+		}
+
+		context.workspaceState.update('packageHash', currentHash);
+		statusBar.updateStatus('syncing');
+
+		let progressResolver = (...args: any) => {};
+		let progressCanceller = (...args: any) => {};
 
 		window.withProgress({
 			location: vscode.ProgressLocation.Notification,
 			title: 'Packages Syncing',
-			cancellable: false
-		}, () => {
-			return new Promise((res) => {
-				progressResolver = res;
+			cancellable: true
+		}, (progress, token) => {
+			token.onCancellationRequested(() => progressCanceller());
+
+			return new Promise(resolver => {
+				progressResolver = resolver;
 			});
 		});
 
@@ -82,23 +96,28 @@ export async function activate(context: vscode.ExtensionContext) {
 		
 		const npmi = spawn('npm', [command], { cwd: dir });
 
+		progressCanceller = () => {
+			npmi.kill();
+			statusBar.updateStatus('idle');
+			log.info('Packages sync cancelled!');
+			window.showInformationMessage('Packages sync cancelled!');
+		};
+
 		npmi.on('exit', (code) => {
 			progressResolver();
 			
 			if (code === 0) {
 				window.showInformationMessage('Packages synced!');
-			} else {
-				window.showErrorMessage('Packages sync failed!');	
 			}
 		});
 
 		npmi.on('error', () => {
-			window.showErrorMessage('Packages sync failed!');	
+			window.showErrorMessage('Packages sync failed!');
+			statusBar.updateStatus('error');
 		});
 
 		npmi.on('close', () => {
-			statusBar.text = `${extensionName}: $(eye)`;
-			statusBar.tooltip = 'Watching package-lock.json';
+			statusBar.updateStatus('idle');
 		});
 	};
 
@@ -109,7 +128,6 @@ export async function activate(context: vscode.ExtensionContext) {
 	});
 
 	if (spawnSync('command', ['-v', 'arc']).status === 0) {
-
 		window.showInformationMessage('Arc found!');
 
 		const arcRootCommand = spawnSync('arc', ['root'], { cwd: path.dirname(packageFile.fsPath)});
@@ -134,8 +152,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		statusBar,
 		logger
 	);
-
-	statusBar.show();
 }
 
 export function deactivate() {}
