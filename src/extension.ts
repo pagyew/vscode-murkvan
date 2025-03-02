@@ -5,7 +5,6 @@ import path from 'node:path';
 import vscode from 'vscode';
 import chokidar from 'chokidar';
 
-const {Created, Changed, Deleted} = vscode.FileChangeType;
 const {window, workspace, commands} = vscode;
 
 const PACKAGE_LOCK_FILENAME = 'package-lock.json';
@@ -26,42 +25,24 @@ export async function activate(context: vscode.ExtensionContext) {
 	const [packageLockFile] = await workspace.findFiles(PACKAGE_LOCK_FILENAME, null, 1);
 
 	if (packageLockFile) {
+		const packageLockHash = getMD5Hash(packageLockFile.fsPath);
+		context.workspaceState.update('packageLockHash', packageLockHash);
 		log.info(`Found package-lock.json: ${packageLockFile.fsPath}`);
+		log.info(`package-lock.json hash: ${packageLockHash}`);
+		statusBar.updateStatus('idle');
 	} else {
 		log.error('No package-lock.json found');
+		statusBar.updateStatus('error');
 	}
 
-	const packageLockHash = getMD5Hash(packageLockFile.fsPath);
-
-	context.workspaceState.update('packageLockHash', packageLockHash);
-
-	log.info(`package-lock.json hash: ${packageLockHash}`);
-
-	statusBar.updateStatus('idle');
-
 	const packageLockWatcher = workspace.createFileSystemWatcher(packageLockFile.fsPath);
-	const watchers = [packageLockWatcher];
-
-	function createListener(uri: vscode.Uri) {
-		log.info(`File created: ${uri.fsPath}`);
-		listener(uri, Created);
-	};
 	
 	function changeListener(uri: vscode.Uri) {
 		log.info(`File changed: ${uri.fsPath}`);
-		listener(uri, Changed);
+		listener(uri);
 	};
 
-	function deleteListener(uri: vscode.Uri) {
-		log.info(`File deleted: ${uri.fsPath}`);
-		listener(uri, Deleted);
-	};
-
-	function listener(uri: vscode.Uri, type: vscode.FileChangeType) {
-		if (type === Deleted) {
-			return;
-		}
-
+	function listener(uri: vscode.Uri) {
 		const currentHash = getMD5Hash(packageLockFile.fsPath);
 		const previousHash = context.workspaceState.get('packageLockHash');
 
@@ -90,13 +71,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		});
 
 		const dir = path.dirname(uri.fsPath);
-		let command = 'ci';
-
-		if (type === Created) {
-			command = 'i';
-		}
-		
-		const npmi = spawn('npm', [command], { cwd: dir });
+		const npmi = spawn('npm', ['ci'], { cwd: dir });
 
 		progressCanceller = () => {
 			npmi.kill();
@@ -123,15 +98,9 @@ export async function activate(context: vscode.ExtensionContext) {
 		});
 	};
 
-	watchers.forEach((watcher) => {
-		watcher.onDidCreate(createListener, null, subscriptions);
-		watcher.onDidChange(changeListener, null, subscriptions);
-		watcher.onDidDelete(deleteListener, null, subscriptions);
-	});
+	packageLockWatcher.onDidChange(changeListener, null, subscriptions);
 
-	if (spawnSync('command', ['-v', 'arc']).status === 0) {
-		window.showInformationMessage('Arc found!');
-
+	function watchArc() {
 		const arcRootCommand = spawnSync('arc', ['root'], { cwd: path.dirname(packageLockFile.fsPath)});
 		const arcRoot = arcRootCommand.stdout.toString().replaceAll('\n', '');
 		const stagePath = path.join(arcRoot, '.arc', 'stage');
@@ -144,8 +113,15 @@ export async function activate(context: vscode.ExtensionContext) {
 		});
 	
 		fileWatcher.on('change', () => changeListener(packageLockFile));
+	
+		subscriptions.push({dispose: () => fileWatcher.close()});
+	}
 
-		subscriptions.push({dispose: fileWatcher.close});
+	const isArcInstalled = spawnSync('command', ['-v', 'arc']).status === 0;
+
+	if (isArcInstalled) {
+		log.info('Arc found!');
+		watchArc();
 	}
 
 	const logger = commands.registerCommand(showOutputChannelCommand, () => log.show());
