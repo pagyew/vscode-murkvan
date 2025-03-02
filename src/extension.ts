@@ -8,7 +8,7 @@ import chokidar from 'chokidar';
 const {Created, Changed, Deleted} = vscode.FileChangeType;
 const {window, workspace, commands} = vscode;
 
-const PACKAGE_FILENAME = 'package.json';
+const PACKAGE_LOCK_FILENAME = 'package-lock.json';
 
 function getMD5Hash(filePath: string) {
 	const md5Command = spawnSync('md5', [filePath]);
@@ -23,22 +23,24 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	statusBar.activate(extensionName);
 
-	const [packageFile] = await workspace.findFiles(PACKAGE_FILENAME, null, 1);
+	const [packageLockFile] = await workspace.findFiles(PACKAGE_LOCK_FILENAME, null, 1);
 
-	if (!packageFile) {
-		log.error('No package.json found');
+	if (packageLockFile) {
+		log.info(`Found package-lock.json: ${packageLockFile.fsPath}`);
+	} else {
+		log.error('No package-lock.json found');
 	}
 
-	const packageHash = getMD5Hash(packageFile.fsPath);
+	const packageLockHash = getMD5Hash(packageLockFile.fsPath);
 
-	context.workspaceState.update('packageHash', packageHash);
+	context.workspaceState.update('packageLockHash', packageLockHash);
 
-	log.info(`Package.json hash: ${packageHash}`);
+	log.info(`package-lock.json hash: ${packageLockHash}`);
 
 	statusBar.updateStatus('idle');
 
-	const packageWatcher = workspace.createFileSystemWatcher(packageFile.fsPath);
-	const watchers = [packageWatcher];
+	const packageLockWatcher = workspace.createFileSystemWatcher(packageLockFile.fsPath);
+	const watchers = [packageLockWatcher];
 
 	function createListener(uri: vscode.Uri) {
 		log.info(`File created: ${uri.fsPath}`);
@@ -60,16 +62,16 @@ export async function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		const currentHash = getMD5Hash(packageFile.fsPath);
-		const previousHash = context.workspaceState.get('packageHash');
+		const currentHash = getMD5Hash(packageLockFile.fsPath);
+		const previousHash = context.workspaceState.get('packageLockHash');
 
-		log.info(`Package.json hash: ${currentHash}`);
+		log.info(`package-lock.json hash: ${currentHash}`);
 		
 		if (currentHash === previousHash) {
 			return;
 		}
 
-		context.workspaceState.update('packageHash', currentHash);
+		context.workspaceState.update('packageLockHash', currentHash);
 		statusBar.updateStatus('syncing');
 
 		let progressResolver = (...args: any) => {};
@@ -77,7 +79,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 		window.withProgress({
 			location: vscode.ProgressLocation.Notification,
-			title: 'Packages Syncing',
+			title: 'Packages syncing',
 			cancellable: true
 		}, (progress, token) => {
 			token.onCancellationRequested(() => progressCanceller());
@@ -130,7 +132,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	if (spawnSync('command', ['-v', 'arc']).status === 0) {
 		window.showInformationMessage('Arc found!');
 
-		const arcRootCommand = spawnSync('arc', ['root'], { cwd: path.dirname(packageFile.fsPath)});
+		const arcRootCommand = spawnSync('arc', ['root'], { cwd: path.dirname(packageLockFile.fsPath)});
 		const arcRoot = arcRootCommand.stdout.toString().replaceAll('\n', '');
 		const stagePath = path.join(arcRoot, '.arc', 'stage');
 		
@@ -141,7 +143,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				usePolling: true,
 		});
 	
-		fileWatcher.on('change', () => changeListener(packageFile));
+		fileWatcher.on('change', () => changeListener(packageLockFile));
 
 		subscriptions.push({dispose: fileWatcher.close});
 	}
