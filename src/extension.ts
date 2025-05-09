@@ -4,6 +4,7 @@ import statusBar from './statusBar';
 import path from 'node:path';
 import vscode from 'vscode';
 import chokidar from 'chokidar';
+import { getDiff } from './getDiff';
 
 const {window, workspace, commands} = vscode;
 
@@ -71,7 +72,19 @@ export async function activate(context: vscode.ExtensionContext) {
 		});
 
 		const dir = path.dirname(uri.fsPath);
-		const npmi = spawn('npm', ['ci'], { cwd: dir });
+		const diff = getDiff(dir);
+
+		const packagesToInstall = diff
+			.filter(({diffType, changeDirection}) => diffType === 'missing' || diffType === 'major' || changeDirection === 'downgrade')
+			.map(({packageName, declaredVersion}) => `${packageName}@${declaredVersion}`);
+
+		if (!packagesToInstall.length) {
+			progressResolver();
+			return;
+		}
+
+		const npmi = spawn('npm', ['i', '--no-package-lock', '--no-save', ...packagesToInstall], { cwd: dir });
+		log.info(`Run command "npm i --no-package-lock --no-save ${packagesToInstall.join(' ')}"`);
 
 		progressCanceller = () => {
 			npmi.kill();

@@ -4,3 +4,6 @@ node_modules
 .vscode-test/
 *.vsix
 .env
+
+# Ignore the sandbox directory
+sandbox/
