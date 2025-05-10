@@ -54,6 +54,18 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 
 		context.workspaceState.update('packageLockHash', currentHash);
+
+		const dir = path.dirname(uri.fsPath);
+		const diff = getDiff(dir);
+
+		const packagesToInstall = diff
+			.filter(({diffType, changeDirection}) => diffType === 'missing' || diffType === 'major' || changeDirection === 'downgrade')
+			.map(({packageName, declaredVersion}) => `${packageName}@${declaredVersion}`);
+
+		if (packagesToInstall.length === 0) {
+			return;
+		}
+
 		statusBar.updateStatus('syncing');
 
 		let progressResolver = (...args: any) => {};
@@ -70,18 +82,6 @@ export async function activate(context: vscode.ExtensionContext) {
 				progressResolver = resolver;
 			});
 		});
-
-		const dir = path.dirname(uri.fsPath);
-		const diff = getDiff(dir);
-
-		const packagesToInstall = diff
-			.filter(({diffType, changeDirection}) => diffType === 'missing' || diffType === 'major' || changeDirection === 'downgrade')
-			.map(({packageName, declaredVersion}) => `${packageName}@${declaredVersion}`);
-
-		if (!packagesToInstall.length) {
-			progressResolver();
-			return;
-		}
 
 		const npmi = spawn('npm', ['i', '--no-package-lock', '--no-save', ...packagesToInstall], { cwd: dir });
 		log.info(`Run command "npm i --no-package-lock --no-save ${packagesToInstall.join(' ')}"`);
