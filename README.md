@@ -26,7 +26,7 @@ Install options:
 
 ## Release Notes
 
-See [Changelog](./CHANGELOG.md)
+See [Realeases](https://github.com/pagyew/vscode-murkvan/releases)
 
 ## FAQ
 
