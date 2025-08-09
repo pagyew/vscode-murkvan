@@ -20,6 +20,9 @@ export async function activate(context: vscode.ExtensionContext) {
 	const extensionId = extension.packageJSON.name;
 	const extensionName = extension.packageJSON.displayName;
 	const showOutputChannelCommand = `${extensionId}.showOutputChannel`;
+	const installPackagesCommand = `${extensionId}.installPackages`;
+	let packagesToInstall: string[] = [];
+	let dir = '';
 
 	statusBar.activate(extensionName);
 
@@ -43,6 +46,54 @@ export async function activate(context: vscode.ExtensionContext) {
 		listener(uri);
 	};
 
+	async function installPackages(packages: string[], dir: string) {
+		statusBar.updateStatus('syncing');
+
+		let progressResolver = (...args: any) => {};
+		let progressCanceller = (...args: any) => {};
+
+			window.withProgress({
+				location: vscode.ProgressLocation.Notification,
+				title: 'Packages syncing',
+				cancellable: true
+			}, (progress, token) => {
+				token.onCancellationRequested(() => progressCanceller());
+
+				return new Promise(resolver => {
+					progressResolver = resolver;
+				});
+			});
+
+			const npmi = spawn('npm', ['i', '--no-package-lock', '--no-save', ...packages], { cwd: dir });
+			log.info(`Run command "npm i --no-package-lock --no-save ${packages.join(' ')}"`);
+
+			progressCanceller = () => {
+				npmi.kill();
+				statusBar.updateStatus('idle');
+				log.info('Packages sync cancelled!');
+				window.showInformationMessage('Packages sync cancelled!');
+			};
+
+			npmi.on('exit', (code) => {
+				progressResolver();
+				
+				if (code === 0) {
+					window.showInformationMessage('Packages synced!');
+				}
+			});
+
+			npmi.on('error', () => {
+				window.showErrorMessage('Packages sync failed!');
+				statusBar.updateStatus('error');
+			});
+
+			npmi.on('close', () => {
+				statusBar.updateStatus('idle');
+				packagesToInstall = [];
+				dir = '';
+			});
+		};
+
 	function listener(uri: vscode.Uri) {
 		const currentHash = getMD5Hash(packageLockFile.fsPath);
 		const previousHash = context.workspaceState.get('packageLockHash');
@@ -55,59 +106,29 @@ export async function activate(context: vscode.ExtensionContext) {
 
 		context.workspaceState.update('packageLockHash', currentHash);
 
-		const dir = path.dirname(uri.fsPath);
+		statusBar.updateStatus('searching');
+		
+		dir = path.dirname(uri.fsPath);
 		const diff = getDiff(dir);
 
-		const packagesToInstall = diff
+		packagesToInstall = diff
 			.filter(({diffType, changeDirection}) => diffType === 'missing' || diffType === 'major' || changeDirection === 'downgrade')
 			.map(({packageName, declaredVersion}) => `${packageName}@${declaredVersion}`);
 
 		if (packagesToInstall.length === 0) {
+			statusBar.updateStatus('idle');
 			return;
 		}
 
-		statusBar.updateStatus('syncing');
+		statusBar.updateStatus('changes', packagesToInstall);
 
-		let progressResolver = (...args: any) => {};
-		let progressCanceller = (...args: any) => {};
+		const message = `Changes detected: ${packagesToInstall.join(' • ')}`;
+		const install = 'Install packages';
 
-		window.withProgress({
-			location: vscode.ProgressLocation.Notification,
-			title: 'Packages syncing',
-			cancellable: true
-		}, (progress, token) => {
-			token.onCancellationRequested(() => progressCanceller());
-
-			return new Promise(resolver => {
-				progressResolver = resolver;
-			});
-		});
-
-		const npmi = spawn('npm', ['i', '--no-package-lock', '--no-save', ...packagesToInstall], { cwd: dir });
-		log.info(`Run command "npm i --no-package-lock --no-save ${packagesToInstall.join(' ')}"`);
-
-		progressCanceller = () => {
-			npmi.kill();
-			statusBar.updateStatus('idle');
-			log.info('Packages sync cancelled!');
-			window.showInformationMessage('Packages sync cancelled!');
-		};
-
-		npmi.on('exit', (code) => {
-			progressResolver();
-			
-			if (code === 0) {
-				window.showInformationMessage('Packages synced!');
+		window.showInformationMessage(message, install).then(selection => {
+			if (selection === install) {
+				installPackages(packagesToInstall, dir);
 			}
-		});
-
-		npmi.on('error', () => {
-			window.showErrorMessage('Packages sync failed!');
-			statusBar.updateStatus('error');
-		});
-
-		npmi.on('close', () => {
-			statusBar.updateStatus('idle');
 		});
 	};
 
@@ -138,10 +159,12 @@ export async function activate(context: vscode.ExtensionContext) {
 	}
 
 	const logger = commands.registerCommand(showOutputChannelCommand, () => log.show());
+	const installer = commands.registerCommand(installPackagesCommand, () => installPackages(packagesToInstall, dir));
 
 	subscriptions.push(
 		statusBar,
-		logger
+		logger,
+		installer
 	);
 }
 

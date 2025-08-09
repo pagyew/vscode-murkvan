@@ -23,6 +23,7 @@ Install options:
 | Setting                            | Description             |
 | :--------------------------------- | :---------------------- |
 | `murkvan.showOutputChannel`        | Show the output channel |
+| `murkvan.installPackages`          | Install packages        |
 
 ## Release Notes
 

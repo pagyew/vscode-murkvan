@@ -45,7 +45,12 @@
     "commands": [
       {
         "command": "murkvan.showOutputChannel",
-        "title": "Show Output Channel",
+        "title": "Show output channel",
+        "category": "Murkvan"
+      },
+      {
+        "command": "murkvan.installPackages",
+        "title": "Install packages",
         "category": "Murkvan"
       }
     ]
