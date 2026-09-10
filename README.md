@@ -1,4 +1,5 @@
 <div align="center">
+  <img src=".github/assets/cover.png" alt="Murkvan — project illustration" width="100%" />
   <img src="images/logo.png" alt="" width="88" />
 
   <h1>Murkvan</h1>
