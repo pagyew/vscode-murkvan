@@ -315,6 +315,33 @@ suite('getDiff', () => {
 
 			assert.deepStrictEqual(getDiff(root).diffs, []);
 		});
+
+		// Regression: pnpm never hoists a workspace member's dependencies to the
+		// shared root node_modules the way npm/yarn do — each member gets its
+		// own node_modules instead. Checking only the root would report every
+		// pnpm workspace member's dependency as permanently "missing".
+		test('checks a member\'s dependency against its own node_modules when the root has none', () => {
+			const root = createProject({ manifest: { workspaces: ['packages/*'] } });
+
+			writeFile(root, 'packages/app/package.json', JSON.stringify({ dependencies: { lodash: '^4.17.0' } }));
+			writeFile(root, 'packages/app/node_modules/lodash/package.json', JSON.stringify({ version: '3.10.1' }));
+
+			assert.strictEqual(findDiff(getDiff(root).diffs, 'lodash').diffType, 'major');
+		});
+
+		test('prefers a member\'s own node_modules over the root one for that member\'s dependency', () => {
+			const root = createProject({
+				manifest: { workspaces: ['packages/*'] },
+				installed: { lodash: { version: '4.18.0' } },
+			});
+
+			writeFile(root, 'packages/app/package.json', JSON.stringify({ dependencies: { lodash: '^4.17.0' } }));
+			writeFile(root, 'packages/app/node_modules/lodash/package.json', JSON.stringify({ version: '3.10.1' }));
+
+			// The root's own copy (4.18.0) satisfies the range; the member's own
+			// copy (3.10.1) does not, and must be the one actually checked.
+			assert.strictEqual(findDiff(getDiff(root).diffs, 'lodash').installedVersion, '3.10.1');
+		});
 	});
 });
 
