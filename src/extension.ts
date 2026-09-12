@@ -409,30 +409,69 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 	);
 
-	// A workspace can hold more than one project — a genuine multi-root
-	// workspace, or an unrelated sub-project in its own folder — so every
-	// lockfile is gathered and grouped by directory instead of only the first
-	// one found winning.
-	const matches = await workspace.findFiles(`{${ALL_LOCKFILE_NAMES.join(',')}}`, LOCKFILE_SEARCH_EXCLUDE);
-	const projectLockfiles = groupLockfilesByProject(matches.map(uri => uri.fsPath));
+	/**
+	 * Finds every lockfile in the workspace and initializes a project for
+	 * each one. A workspace can hold more than one project — a genuine
+	 * multi-root workspace, or an unrelated sub-project in its own folder —
+	 * so every lockfile is gathered and grouped by directory instead of only
+	 * the first one found winning.
+	 *
+	 * Safe to call more than once: it only ever adds projects, and a repeat
+	 * call that finds nothing new is a no-op.
+	 */
+	async function discoverProjects(): Promise<void> {
+		const matches = await workspace.findFiles(`{${ALL_LOCKFILE_NAMES.join(',')}}`, LOCKFILE_SEARCH_EXCLUDE);
+		const projectLockfiles = groupLockfilesByProject(matches.map(uri => uri.fsPath))
+			.filter(lockfilePath => !projects.some(project => project.projectDir === path.dirname(lockfilePath)));
 
-	if (projectLockfiles.length === 0) {
-		log.error('No supported lockfile found');
-		statusBar.updateStatus('error');
-		return;
+		if (projects.length === 0 && projectLockfiles.length === 0) {
+			log.error('No supported lockfile found');
+			statusBar.updateStatus('error');
+			return;
+		}
+
+		const isMultiRoot = projects.length + projectLockfiles.length > 1;
+
+		for (const lockfilePath of projectLockfiles) {
+			const label = isMultiRoot ? path.basename(path.dirname(lockfilePath)) : undefined;
+			const project = createProject(context, lockfilePath, label, refreshStatusBar);
+
+			projects.push(project);
+			await project.initialize();
+		}
+
+		refreshStatusBar();
 	}
 
-	const isMultiRoot = projectLockfiles.length > 1;
+	await discoverProjects();
 
-	for (const lockfilePath of projectLockfiles) {
-		const label = isMultiRoot ? path.basename(path.dirname(lockfilePath)) : undefined;
-		const project = createProject(context, lockfilePath, label, refreshStatusBar);
+	// Without a lockfile there is nothing to watch yet — a fresh `git clone`,
+	// or a workspace opened before `npm install` has ever run. Rather than
+	// staying inert until the window is reloaded, watch for one of the
+	// supported lockfiles being created anywhere and try discovery again;
+	// once it finds a project, this watcher has done its job and stops.
+	if (projects.length === 0) {
+		log.info('Watching for a supported lockfile to be created...');
 
-		projects.push(project);
-		await project.initialize();
+		const creationWatcher = workspace.createFileSystemWatcher(`{${ALL_LOCKFILE_NAMES.join(',')}}`, false, true, true);
+		let debounceTimer: NodeJS.Timeout | undefined;
+
+		const onCreate = creationWatcher.onDidCreate(() => {
+			clearTimeout(debounceTimer);
+			debounceTimer = setTimeout(() => {
+				void (async () => {
+					await discoverProjects();
+
+					if (projects.length > 0) {
+						onCreate.dispose();
+						creationWatcher.dispose();
+					}
+				})();
+			}, CHANGE_DEBOUNCE_MS);
+		});
+
+		subscriptions.push(creationWatcher, onCreate, { dispose: () => clearTimeout(debounceTimer) });
 	}
-
-	refreshStatusBar();
 }
 
 export function deactivate() {}
