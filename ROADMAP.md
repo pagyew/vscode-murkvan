@@ -52,6 +52,12 @@ lockfile-vs-lockfile path already covered the npm/yarn case without any
 change, since `package-lock.json` records the whole resolved workspace tree
 regardless of which member declared what.
 
+When activation finds no supported lockfile at all — a fresh `git clone`
+before `npm install` has ever run, most often — Murkvan no longer just logs
+an error and sits inert until the window is reloaded: it watches for one of
+the supported lockfiles being created anywhere in the workspace and re-runs
+discovery once one appears, so running the install is all it takes.
+
 Unit tests cover both diff paths, workspace glob resolution, pnpm-workspace
 parsing, package manager detection, lockfile grouping, status aggregation,
 hashing and Arc detection — and, having been caught getting this wrong
@@ -63,12 +69,7 @@ bar.
 
 ## Next
 
-### 1. Recover without a reload
-
-When no lockfile is found, Murkvan logs an error and stays inert until the
-window is reloaded. Watching for the lockfile's creation and re-running
-activation would make `git clone` followed by `npm install` work without a
-restart.
+Nothing is currently planned beyond what is listed under "Later" below.
 
 ## Later
 
