@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
-let statusBarItem: vscode.StatusBarItem;
-let extensionName: string;
+let statusBarItem: vscode.StatusBarItem | undefined;
+let extensionName = "Murkvan";
 
 const Status = {
   idle: "eye",
@@ -17,7 +17,7 @@ const Tooltip = {
   idle: "Watching package.json",
   searching: "Searching for package changes...",
   syncing: "Syncing packages...",
-  error: "Error",
+  error: "Error — open the Murkvan output channel for details",
   changes: (packages: string[]) => '' +
     'Changes detected:' +
     '\n\n' +
@@ -26,32 +26,40 @@ const Tooltip = {
     '[Click to install](command:murkvan.installPackages)',
 };
 
+const dispose = () => {
+  statusBarItem?.dispose();
+  statusBarItem = undefined;
+};
+
 const activate = (name: string) => {
+  // Replace any previous item so repeated activations cannot leak one.
+  dispose();
+
   extensionName = name;
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right);
+  statusBarItem.name = name;
   statusBarItem.command = "murkvan.showOutputChannel";
   statusBarItem.show();
 };
 
 const updateStatus = (status: Status, packages: string[] = []) => {
+  if (!statusBarItem) {
+    return;
+  }
+
   statusBarItem.text = `${extensionName}: $(${Status[status]})`;
 
   if (status === 'changes') {
     const mdTooltip = new vscode.MarkdownString(Tooltip.changes(packages));
-    
+
     statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-    
+
     mdTooltip.isTrusted = {enabledCommands: ['murkvan.installPackages']};
     statusBarItem.tooltip = mdTooltip;
   } else {
     statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.background');
     statusBarItem.tooltip = Tooltip[status];
   }
-};
-
-const dispose = () => {
-  statusBarItem.hide();
-  statusBarItem.dispose();
 };
 
 const get = () => {

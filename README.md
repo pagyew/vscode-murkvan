@@ -29,31 +29,40 @@ Or search for **Murkvan** in the VS Code Extensions panel.
 - VS Code 1.96 or newer.
 - An npm project with `package.json`, `package-lock.json`, and an existing `node_modules` directory.
 - `npm` available on `PATH`.
-- The current source uses the macOS-style `md5` command to hash the lockfile; other environments need a compatible command.
 
 ## How it works
 
 1. Locates the first root-level `package-lock.json` in the workspace and remembers its hash.
-2. Watches that file for changes.
-3. Compares `dependencies` from `package.json` with packages in `node_modules`.
-4. Offers **Install packages** for missing packages, detected major-version differences, and downgrades.
-5. Runs `npm i --no-package-lock --no-save` with the selected packages when you choose to install.
+2. Watches that file for changes. When Arc is installed, it also polls Arc's staging area, which native file watchers do not report.
+3. On a change, re-hashes the lockfile and stops there if the contents are unchanged.
+4. Compares `dependencies` and `devDependencies` from `package.json` with the versions in `node_modules`, using semver ranges: a package is reported only when the installed version cannot satisfy the declared range.
+5. Offers **Install packages**, then runs `npm i --no-package-lock --no-save` with the packages that are out of step.
 
-Progress, detected changes, and logs are available through the status bar and the **Murkvan** output channel. The implementation also includes a watcher for Arc's staging area when Arc is detected.
+Progress, detected changes, and logs are available through the status bar and the **Murkvan** output channel.
 
 > [!NOTE]
-> The current comparison covers `dependencies`, not `devDependencies`, and watches one lockfile. It does not run a complete `npm ci` on every change.
+> Murkvan watches one root lockfile and installs only the packages that changed. It does not run a complete `npm ci`, and it does not handle workspaces or `yarn`/`pnpm`/`bun` lockfiles yet — see the [roadmap](ROADMAP.md).
 
 ## Commands
 
-| Command ID                  | Purpose                             |
-| --------------------------- | ----------------------------------- |
-| `murkvan.showOutputChannel` | Open the extension's log            |
-| `murkvan.installPackages`   | Install the pending package changes |
+| Command ID                  | Purpose                                  |
+| --------------------------- | ---------------------------------------- |
+| `murkvan.showOutputChannel` | Open the extension's log                 |
+| `murkvan.installPackages`   | Install the pending package changes      |
+| `murkvan.checkPackages`     | Compare packages now, without a lockfile change |
+
+## Settings
+
+| Setting                            | Default  | Purpose                                                     |
+| ---------------------------------- | -------- | ----------------------------------------------------------- |
+| `murkvan.logLevel`                 | `info`   | How much is written to the output channel (`off`/`info`/`debug`) |
+| `murkvan.showOutputOnError`        | `false`  | Reveal the output channel whenever an error is logged        |
+| `murkvan.includeDevDependencies`   | `true`   | Compare `devDependencies` as well as `dependencies`          |
+| `murkvan.autoInstall`              | `false`  | Install detected changes immediately instead of asking first |
 
 ## Troubleshooting
 
-Check that the workspace root contains the manifest and lockfile, that dependencies have been installed once, and that `npm` and a compatible `md5` command are available. Reload VS Code, open the **Murkvan** output channel, and inspect the recorded paths and errors.
+Check that the workspace root contains the manifest and lockfile, that dependencies have been installed once, and that `npm` is on `PATH`. Run **Murkvan: Check packages** to compare on demand, then open the **Murkvan** output channel and inspect the recorded paths and errors.
 
 ## Development
 
@@ -71,8 +80,15 @@ Use the checked-in [.vscode/launch.json](.vscode/launch.json) to start an Extens
 | `npm run watch`       | Rebuild and type-check on changes     |
 | `npm run check-types` | Type-check                            |
 | `npm run lint`        | Lint source files                     |
-| `npm test`            | Run the VS Code test suite            |
+| `npm test`            | Run the unit and integration suites   |
+| `npm run test:unit`   | Run the unit suite only (no VS Code download) |
 | `npm run package`     | Build the production extension bundle |
+
+Unit tests in `src/test/unit` cover the modules that do not import `vscode` and run under plain Mocha. Integration tests in `src/test/integration` run inside a VS Code instance downloaded by `@vscode/test-cli`.
+
+## Roadmap
+
+Planned work is tracked in [ROADMAP.md](ROADMAP.md).
 
 ## License
 

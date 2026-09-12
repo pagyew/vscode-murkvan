@@ -52,8 +52,43 @@
         "command": "murkvan.installPackages",
         "title": "Install packages",
         "category": "Murkvan"
+      },
+      {
+        "command": "murkvan.checkPackages",
+        "title": "Check packages",
+        "category": "Murkvan"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Murkvan",
+      "properties": {
+        "murkvan.logLevel": {
+          "type": "string",
+          "enum": [
+            "off",
+            "info",
+            "debug"
+          ],
+          "default": "info",
+          "description": "How much Murkvan writes to its output channel."
+        },
+        "murkvan.showOutputOnError": {
+          "type": "boolean",
+          "default": false,
+          "description": "Reveal the Murkvan output channel whenever an error is logged."
+        },
+        "murkvan.includeDevDependencies": {
+          "type": "boolean",
+          "default": true,
+          "description": "Compare devDependencies as well as dependencies."
+        },
+        "murkvan.autoInstall": {
+          "type": "boolean",
+          "default": false,
+          "description": "Install detected changes immediately instead of asking first."
+        }
+      }
+    }
   },
   "scripts": {
     "release": "bumpp",
@@ -66,9 +101,12 @@
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "pretest:unit": "npm run compile-tests",
+    "test:unit": "mocha --ui tdd \"out/test/unit/**/*.test.js\"",
+    "test:integration": "vscode-test",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "npm run test:unit && npm run test:integration"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -82,6 +120,7 @@
     "bumpp": "^10.0.3",
     "chokidar": "^4.0.3",
     "esbuild": "^0.24.0",
+    "mocha": "^10.8.2",
     "eslint": "^9.16.0",
     "npm-run-all": "^4.1.5",
     "semver": "^7.7.1",
