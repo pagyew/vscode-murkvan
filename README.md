@@ -14,7 +14,7 @@
 
 ---
 
-A VS Code extension that watches a package lockfile, compares declared dependencies with installed packages, and offers to install the changes it detects. Works with npm, yarn, pnpm and bun.
+A VS Code extension that watches a project's lockfile, compares declared dependencies with installed packages, and offers to install the changes it detects. Works with npm, yarn, pnpm and bun, and with more than one project open at once.
 
 ## Install
 
@@ -32,25 +32,25 @@ Or search for **Murkvan** in the VS Code Extensions panel.
 
 ## How it works
 
-1. Locates the first root-level lockfile in the workspace, picks the package manager it belongs to, and remembers the lockfile's hash. If more than one lockfile is present — typically left over from switching managers — the `packageManager` field in `package.json` breaks the tie; otherwise npm wins, then pnpm, then yarn, then bun.
-2. Watches that file for changes. When Arc is installed, it also polls Arc's staging area, which native file watchers do not report.
-3. On a change, re-hashes the lockfile and stops there if the contents are unchanged.
+1. Finds every supported lockfile in the workspace and tracks each as its own project — its own package manager, its own pending packages, its own in-flight install — so a multi-root workspace or a folder holding more than one independent project (e.g. an `examples/` directory with its own lockfile) works without them interfering with each other. Within one project's directory, if more than one lockfile is present — typically left over from switching managers — the `packageManager` field in `package.json` breaks the tie; otherwise npm wins, then pnpm, then yarn, then bun.
+2. Watches each project's lockfile for changes. When Arc is installed, it also polls Arc's staging area, which native file watchers do not report.
+3. On a change, re-hashes that lockfile and stops there if the contents are unchanged.
 4. For npm, compares the tree `package-lock.json` describes with the tree recorded in `node_modules/.package-lock.json` — the file npm 7+ writes to describe what it actually installed. Two JSON reads answer what the branch changed, transitive dependencies included. Otherwise — an npm project predating npm 7, or any yarn/pnpm/bun project, since none of them write an npm-shaped "what's actually installed" file — it falls back to comparing `dependencies` and `devDependencies` from `package.json` against the versions found by walking `node_modules`, using semver ranges. This fallback doesn't care which manager wrote `node_modules`, so it's what makes yarn/pnpm/bun support possible without parsing their lockfile formats at all.
-5. Offers **Install packages**, which installs pinned to the exact versions the diff named without touching `package.json` or the lockfile (`npm i --no-package-lock --no-save` / `bun add --no-save`), or **Reinstall everything**, which reinstalls the whole tree straight from the lockfile (`npm ci` / `pnpm install --frozen-lockfile` / `yarn install --frozen-lockfile` / `bun install --frozen-lockfile`) — the sledgehammer for when the drift is large or reaches into nested/duplicated dependencies a top-level diff can't see. yarn's and pnpm's `add` always rewrite `package.json`, so for those two only **Reinstall everything** is offered.
+5. Offers **Install packages**, which installs pinned to the exact versions the diff named without touching `package.json` or the lockfile (`npm i --no-package-lock --no-save` / `bun add --no-save`), or **Reinstall everything**, which reinstalls the whole tree straight from the lockfile (`npm ci` / `pnpm install --frozen-lockfile` / `yarn install --frozen-lockfile` / `bun install --frozen-lockfile`) — the sledgehammer for when the drift is large or reaches into nested/duplicated dependencies a top-level diff can't see. yarn's and pnpm's `add` always rewrite `package.json`, so for those two only **Reinstall everything** is offered. With more than one project open, either command asks which one to act on first.
 
-Progress, detected changes, and logs are available through the status bar and the **Murkvan** output channel.
+One status bar entry summarizes every project at once — the most attention-grabbing status wins, and a pending-changes list is prefixed per project once there is more than one — and progress, detected changes, and logs are all also available through the **Murkvan** output channel.
 
 > [!NOTE]
-> Murkvan watches one root lockfile — it does not yet handle workspaces or multi-root monorepos — see the [roadmap](ROADMAP.md).
+> A monorepo that is a single project on disk — one lockfile, a `workspaces` field in the root `package.json` — only has its root manifest's own dependencies diffed today; drift in a member package's own dependencies isn't yet detected — see the [roadmap](ROADMAP.md).
 
 ## Commands
 
 | Command ID                  | Purpose                                  |
 | --------------------------- | ---------------------------------------- |
 | `murkvan.showOutputChannel` | Open the extension's log                 |
-| `murkvan.installPackages`   | Install the pending package changes      |
-| `murkvan.checkPackages`     | Compare packages now, without a lockfile change |
-| `murkvan.reinstallAll`      | Run `npm ci` to reinstall the whole tree |
+| `murkvan.installPackages`   | Install the pending package changes (asks which project when more than one is open) |
+| `murkvan.checkPackages`     | Compare packages now for every open project, without a lockfile change |
+| `murkvan.reinstallAll`      | Reinstall a project's whole tree from its lockfile (asks which project when more than one is open) |
 
 ## Settings
 

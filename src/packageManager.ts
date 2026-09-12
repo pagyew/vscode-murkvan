@@ -138,3 +138,41 @@ export function selectLockfile(lockfilePaths: string[]): string | undefined {
 export function detectPackageManager(lockfilePath: string): PackageManager {
 	return getPackageManager(managerForLockfile(path.basename(lockfilePath)) ?? 'npm');
 }
+
+/**
+ * Groups every lockfile path Murkvan found into one project per directory,
+ * resolving {@link selectLockfile}'s tie-break within any directory that
+ * holds more than one lockfile.
+ *
+ * This is what makes multi-root VS Code workspaces — and any standalone
+ * sub-project living in its own folder, such as an `examples/` directory
+ * with its own lockfile — work: each distinct directory becomes its own
+ * project instead of only the first lockfile found anywhere in the
+ * workspace winning.
+ */
+export function groupLockfilesByProject(lockfilePaths: string[]): string[] {
+	const byDirectory = new Map<string, string[]>();
+
+	for (const lockfilePath of lockfilePaths) {
+		const directory = path.dirname(lockfilePath);
+		const group = byDirectory.get(directory);
+
+		if (group) {
+			group.push(lockfilePath);
+		} else {
+			byDirectory.set(directory, [lockfilePath]);
+		}
+	}
+
+	const projects: string[] = [];
+
+	for (const group of byDirectory.values()) {
+		const selected = selectLockfile(group);
+
+		if (selected) {
+			projects.push(selected);
+		}
+	}
+
+	return projects;
+}

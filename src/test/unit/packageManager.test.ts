@@ -4,6 +4,7 @@ import {
 	ALL_LOCKFILE_NAMES,
 	detectPackageManager,
 	getPackageManager,
+	groupLockfilesByProject,
 	selectLockfile,
 } from '../../packageManager';
 import { createProject, removeProjects } from '../helpers/fixtures';
@@ -127,5 +128,36 @@ suite('selectLockfile', () => {
 		const yarnLock = path.join(root, 'yarn.lock');
 
 		assert.strictEqual(selectLockfile([yarnLock, npmLock]), npmLock);
+	});
+});
+
+suite('groupLockfilesByProject', () => {
+	teardown(removeProjects);
+
+	test('returns nothing for an empty workspace', () => {
+		assert.deepStrictEqual(groupLockfilesByProject([]), []);
+	});
+
+	test('keeps one lockfile per distinct directory — the multi-root case', () => {
+		const frontend = createProject({ manifest: { name: 'frontend' } });
+		const backend = createProject({ manifest: { name: 'backend' } });
+		const frontendLock = path.join(frontend, 'package-lock.json');
+		const backendLock = path.join(backend, 'yarn.lock');
+
+		const projects = groupLockfilesByProject([frontendLock, backendLock]);
+
+		assert.strictEqual(projects.length, 2);
+		assert.ok(projects.includes(frontendLock));
+		assert.ok(projects.includes(backendLock));
+	});
+
+	// Regression: a directory with two lockfiles (e.g. left over from
+	// switching managers) must collapse to one project, not two.
+	test('collapses more than one lockfile in the same directory into a single project', () => {
+		const root = createProject({ manifest: { name: 'root', packageManager: 'pnpm@9.1.0' } });
+		const npmLock = path.join(root, 'package-lock.json');
+		const pnpmLock = path.join(root, 'pnpm-lock.yaml');
+
+		assert.deepStrictEqual(groupLockfilesByProject([npmLock, pnpmLock]), [pnpmLock]);
 	});
 });

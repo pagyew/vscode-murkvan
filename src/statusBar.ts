@@ -11,7 +11,7 @@ const Status = {
   error: "error",
 };
 
-type Status = keyof typeof Status;
+export type Status = keyof typeof Status;
 
 const Tooltip = {
   idle: "Watching package.json",
