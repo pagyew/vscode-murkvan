@@ -57,6 +57,11 @@
         "command": "murkvan.checkPackages",
         "title": "Check packages",
         "category": "Murkvan"
+      },
+      {
+        "command": "murkvan.reinstallAll",
+        "title": "Reinstall all packages",
+        "category": "Murkvan"
       }
     ],
     "configuration": {

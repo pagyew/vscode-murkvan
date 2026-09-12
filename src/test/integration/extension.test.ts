@@ -6,6 +6,7 @@ const EXPECTED_COMMANDS = [
 	'murkvan.showOutputChannel',
 	'murkvan.installPackages',
 	'murkvan.checkPackages',
+	'murkvan.reinstallAll',
 ];
 
 suite('extension', () => {
@@ -43,6 +44,11 @@ suite('extension', () => {
 	test('installPackages reports nothing to do instead of failing', async () => {
 		await vscode.extensions.getExtension(EXTENSION_ID)?.activate();
 		await vscode.commands.executeCommand('murkvan.installPackages');
+	});
+
+	test('reinstallAll reports nothing to do instead of failing', async () => {
+		await vscode.extensions.getExtension(EXTENSION_ID)?.activate();
+		await vscode.commands.executeCommand('murkvan.reinstallAll');
 	});
 
 	// Without a lockfile there is no project root; the check must not fall back

@@ -45,6 +45,86 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	statusBar.activate(extensionName);
 
+	type NpmOutcome = 'success' | 'cancelled' | 'failed';
+
+	/** Spawns `npm <args>` under a cancellable progress notification. */
+	async function runNpm(args: string[], cwd: string, progressTitle: string): Promise<NpmOutcome> {
+		statusBar.updateStatus('syncing');
+
+		log.info(`Run command "npm ${args.join(' ')}"`);
+
+		return window.withProgress({
+			location: vscode.ProgressLocation.Notification,
+			title: progressTitle,
+			cancellable: true
+		}, (progress, token) => new Promise<NpmOutcome>(resolve => {
+			const npm = spawn(NPM_COMMAND, args, { cwd, windowsHide: true });
+			let cancelled = false;
+			let stderr = '';
+
+			installation = npm;
+
+			npm.stderr?.on('data', chunk => { stderr += chunk.toString(); });
+
+			token.onCancellationRequested(() => {
+				cancelled = true;
+				npm.kill();
+			});
+
+			npm.on('error', error => {
+				log.error(`Failed to run npm: ${error.message}`);
+			});
+
+			npm.on('close', code => {
+				installation = undefined;
+
+				if (cancelled) {
+					log.info('Packages sync cancelled!');
+					window.showInformationMessage('Packages sync cancelled!');
+					resolve('cancelled');
+					return;
+				}
+
+				if (code === 0) {
+					log.info('Packages synced!');
+					window.showInformationMessage('Packages synced!');
+					resolve('success');
+					return;
+				}
+
+				statusBar.updateStatus('error');
+				log.error(`npm exited with code ${code}${stderr ? `:\n${stderr.trim()}` : ''}`);
+				window.showErrorMessage('Packages sync failed!');
+				resolve('failed');
+			});
+		}));
+	}
+
+	/** Restores the status bar once an install attempt of either kind settles. */
+	function reportOutcome(outcome: NpmOutcome) {
+		if (outcome === 'success') {
+			packagesToInstall = [];
+			statusBar.updateStatus('idle');
+			return;
+		}
+
+		// A 'failed' run already left the status bar on 'error'; cancelling is
+		// not an error, so restore whatever was true before the run started.
+		if (outcome === 'cancelled') {
+			if (packagesToInstall.length > 0) {
+				statusBar.updateStatus('changes', packagesToInstall);
+			} else {
+				statusBar.updateStatus('idle');
+			}
+		}
+	}
+
+	/**
+	 * Installs exactly the packages `getDiff` flagged, each pinned to the
+	 * version its diff names — the lockfile's own resolved version when the
+	 * diff came from the fast lockfile-diffing path, since `--no-package-lock`
+	 * stops npm from re-resolving it from a range.
+	 */
 	async function installPackages(packages: string[], cwd: string) {
 		if (packages.length === 0 || cwd === '') {
 			window.showInformationMessage('Nothing to install — packages are in sync.');
@@ -56,58 +136,27 @@ export async function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		statusBar.updateStatus('syncing');
+		reportOutcome(await runNpm(['i', '--no-package-lock', '--no-save', ...packages], cwd, 'Packages syncing'));
+	}
 
-		const args = ['i', '--no-package-lock', '--no-save', ...packages];
+	/**
+	 * The sledgehammer: `npm ci` wipes `node_modules` and reinstalls the whole
+	 * tree from the lockfile. Slower than {@link installPackages}, but the
+	 * only way to also fix nested or duplicated dependencies a top-level diff
+	 * can't see.
+	 */
+	async function reinstallAll(cwd: string) {
+		if (cwd === '') {
+			window.showInformationMessage('Nothing to install — packages are in sync.');
+			return;
+		}
 
-		log.info(`Run command "npm ${args.join(' ')}"`);
+		if (installation) {
+			window.showWarningMessage('Packages are already syncing.');
+			return;
+		}
 
-		await window.withProgress({
-			location: vscode.ProgressLocation.Notification,
-			title: 'Packages syncing',
-			cancellable: true
-		}, (progress, token) => new Promise<void>(resolve => {
-			const npmi = spawn(NPM_COMMAND, args, { cwd, windowsHide: true });
-			let cancelled = false;
-			let stderr = '';
-
-			installation = npmi;
-
-			npmi.stderr?.on('data', chunk => { stderr += chunk.toString(); });
-
-			token.onCancellationRequested(() => {
-				cancelled = true;
-				npmi.kill();
-			});
-
-			npmi.on('error', error => {
-				log.error(`Failed to run npm: ${error.message}`);
-			});
-
-			npmi.on('close', code => {
-				installation = undefined;
-				resolve();
-
-				if (cancelled) {
-					statusBar.updateStatus('changes', packages);
-					log.info('Packages sync cancelled!');
-					window.showInformationMessage('Packages sync cancelled!');
-					return;
-				}
-
-				if (code === 0) {
-					packagesToInstall = [];
-					statusBar.updateStatus('idle');
-					log.info('Packages synced!');
-					window.showInformationMessage('Packages synced!');
-					return;
-				}
-
-				statusBar.updateStatus('error');
-				log.error(`npm exited with code ${code}${stderr ? `:\n${stderr.trim()}` : ''}`);
-				window.showErrorMessage('Packages sync failed!');
-			});
-		}));
+		reportOutcome(await runNpm(['ci'], cwd, 'Reinstalling all packages'));
 	}
 
 	async function checkPackages() {
@@ -152,13 +201,17 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 
 		const install = 'Install packages';
+		const reinstall = 'Reinstall everything';
 		const selection = await window.showInformationMessage(
 			`Changes detected: ${packagesToInstall.join(' • ')}`,
-			install
+			install,
+			reinstall
 		);
 
 		if (selection === install) {
 			await installPackages(packagesToInstall, projectDir);
+		} else if (selection === reinstall) {
+			await reinstallAll(projectDir);
 		}
 	}
 
@@ -212,6 +265,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		commands.registerCommand(`${extensionId}.showOutputChannel`, () => log.show()),
 		commands.registerCommand(`${extensionId}.installPackages`, () => installPackages(packagesToInstall, projectDir)),
 		commands.registerCommand(`${extensionId}.checkPackages`, () => checkPackages()),
+		commands.registerCommand(`${extensionId}.reinstallAll`, () => reinstallAll(projectDir)),
 	);
 
 	const [packageLockFile] = await workspace.findFiles(PACKAGE_LOCK_FILENAME, null, 1);
