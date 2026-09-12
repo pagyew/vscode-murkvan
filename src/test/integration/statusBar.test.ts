@@ -34,13 +34,15 @@ suite('statusBar', () => {
 		assert.strictEqual((item?.backgroundColor as vscode.ThemeColor).id, 'statusBarItem.warningBackground');
 	});
 
+	// VS Code accepts only warningBackground and errorBackground here, so the
+	// warning has to be cleared with undefined rather than another ThemeColor.
 	test('clears the warning background once the changes are handled', () => {
 		statusBar.updateStatus('changes', ['lodash@^4.17.0']);
 		statusBar.updateStatus('idle');
 
 		const item = statusBar.get();
 
-		assert.strictEqual((item?.backgroundColor as vscode.ThemeColor).id, 'statusBarItem.background');
+		assert.strictEqual(item?.backgroundColor, undefined);
 		assert.strictEqual(typeof item?.tooltip, 'string');
 	});
 

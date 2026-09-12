@@ -57,7 +57,9 @@ const updateStatus = (status: Status, packages: string[] = []) => {
     mdTooltip.isTrusted = {enabledCommands: ['murkvan.installPackages']};
     statusBarItem.tooltip = mdTooltip;
   } else {
-    statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.background');
+    // Only warningBackground and errorBackground are supported here; any other
+    // ThemeColor is dropped by VS Code, so clear the warning with undefined.
+    statusBarItem.backgroundColor = undefined;
     statusBarItem.tooltip = Tooltip[status];
   }
 };
