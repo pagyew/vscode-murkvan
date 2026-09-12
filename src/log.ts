@@ -52,9 +52,8 @@ class Log {
   }
 
   public dispose() {
-    if (this._disposable) {
-      this._disposable.dispose();
-    }
+    this._disposable.dispose();
+    this._outputChannel.dispose();
   }
 
   private updateConfiguration() {
