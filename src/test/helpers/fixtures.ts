@@ -15,6 +15,10 @@ export interface ProjectSpec {
 	installed?: Record<string, ManifestSpec | null>;
 	/** Create `node_modules` even when no package is installed. Defaults to `true`. */
 	nodeModules?: boolean;
+	/** Contents for `package-lock.json` at the project root. */
+	lockfile?: ManifestSpec;
+	/** Contents for `node_modules/.package-lock.json`, the tree npm actually installed. */
+	installedLockfile?: ManifestSpec;
 }
 
 const createdProjects: string[] = [];
@@ -25,7 +29,7 @@ function write(filePath: string, content: ManifestSpec) {
 }
 
 /** Builds a throwaway project on disk and returns its root. */
-export function createProject({ manifest, installed = {}, nodeModules = true }: ProjectSpec): string {
+export function createProject({ manifest, installed = {}, nodeModules = true, lockfile, installedLockfile }: ProjectSpec): string {
 	const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'murkvan-test-'));
 
 	createdProjects.push(root);
@@ -46,6 +50,14 @@ export function createProject({ manifest, installed = {}, nodeModules = true }: 
 		if (packageManifest !== null) {
 			write(path.join(packagePath, 'package.json'), packageManifest);
 		}
+	}
+
+	if (lockfile !== undefined) {
+		write(path.join(root, 'package-lock.json'), lockfile);
+	}
+
+	if (installedLockfile !== undefined) {
+		write(path.join(root, 'node_modules', '.package-lock.json'), installedLockfile);
 	}
 
 	return root;
