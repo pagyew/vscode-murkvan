@@ -36,12 +36,12 @@ Or search for **Murkvan** in the VS Code Extensions panel.
 2. Watches that file for changes. When Arc is installed, it also polls Arc's staging area, which native file watchers do not report.
 3. On a change, re-hashes the lockfile and stops there if the contents are unchanged.
 4. Compares the tree `package-lock.json` describes with the tree recorded in `node_modules/.package-lock.json` — the file npm 7+ writes to describe what it actually installed. Two JSON reads answer what the branch changed, transitive dependencies included. When either lockfile is missing or predates npm 7 (or the tree was installed by yarn/pnpm/bun), it falls back to comparing `dependencies` and `devDependencies` from `package.json` against the versions found by walking `node_modules`, using semver ranges.
-5. Offers **Install packages**, then runs `npm i --no-package-lock --no-save` with the packages that are out of step.
+5. Offers **Install packages**, which runs `npm i --no-package-lock --no-save` pinned to the exact versions the diff named, or **Reinstall everything**, which runs `npm ci` — the sledgehammer for when the drift is large or reaches into nested/duplicated dependencies a top-level diff can't see.
 
 Progress, detected changes, and logs are available through the status bar and the **Murkvan** output channel.
 
 > [!NOTE]
-> Murkvan watches one root lockfile and installs only the packages that changed. It does not run a complete `npm ci`, and it does not handle workspaces or `yarn`/`pnpm`/`bun` lockfiles yet — see the [roadmap](ROADMAP.md).
+> Murkvan watches one root lockfile. It does not handle workspaces or `yarn`/`pnpm`/`bun` lockfiles yet — see the [roadmap](ROADMAP.md).
 
 ## Commands
 
@@ -50,6 +50,7 @@ Progress, detected changes, and logs are available through the status bar and th
 | `murkvan.showOutputChannel` | Open the extension's log                 |
 | `murkvan.installPackages`   | Install the pending package changes      |
 | `murkvan.checkPackages`     | Compare packages now, without a lockfile change |
+| `murkvan.reinstallAll`      | Run `npm ci` to reinstall the whole tree |
 
 ## Settings
 
