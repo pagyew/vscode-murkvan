@@ -184,8 +184,64 @@ function findExtraneous(nodeModulesPath: string, declaredPackages: Record<string
 }
 
 /**
- * Compares the dependencies declared in `package.json` with the packages
- * present in `node_modules`, one manifest read per installed package.
+ * Resolves one `workspaces` pattern into candidate directories.
+ *
+ * Only the two shapes real workspace patterns almost always take are
+ * supported: a literal path (`"apps/api"`) and a single trailing `*`
+ * matching any immediate subdirectory (`"packages/*"`). A pattern that needs
+ * more than that — recursive `**`, brace expansion, a `*` mid-segment — is
+ * skipped rather than mis-resolved; `resolveWorkspaceMembers` still picks up
+ * every workspace covered by a simpler sibling pattern.
+ */
+function resolveWorkspacePattern(pathToProject: string, pattern: string): string[] {
+	if (!pattern.includes('*')) {
+		return [path.join(pathToProject, pattern)];
+	}
+
+	const segments = pattern.split('/');
+
+	if (segments.at(-1) !== '*' || segments.slice(0, -1).some(segment => segment.includes('*'))) {
+		return [];
+	}
+
+	const parentDir = path.join(pathToProject, ...segments.slice(0, -1));
+
+	return readDirectory(parentDir)
+		.filter(entry => entry.isDirectory())
+		.map(entry => path.join(parentDir, entry.name));
+}
+
+/**
+ * Resolves every workspace member directory declared by the root manifest's
+ * `workspaces` field (both the plain array form and yarn's `{ packages }`
+ * form), keeping only the ones that actually contain a `package.json`.
+ *
+ * pnpm does not use `workspaces` at all — it lists members in
+ * `pnpm-workspace.yaml` instead — so this resolves nothing for a pnpm
+ * project; see the roadmap.
+ */
+function resolveWorkspaceMembers(pathToProject: string, manifest: PackageJson): string[] {
+	const { workspaces } = manifest;
+	const patterns = Array.isArray(workspaces) ? workspaces : workspaces?.packages ?? [];
+
+	const members: string[] = [];
+
+	for (const pattern of patterns) {
+		for (const memberDir of resolveWorkspacePattern(pathToProject, pattern)) {
+			if (fs.existsSync(path.join(memberDir, MANIFEST_FILENAME))) {
+				members.push(memberDir);
+			}
+		}
+	}
+
+	return members;
+}
+
+/**
+ * Compares the dependencies declared in `package.json` — and, for a
+ * `workspaces` monorepo, in every member's own `package.json` — with the
+ * packages present in `node_modules`, one manifest read per installed
+ * package.
  *
  * This is the fallback path: slower, and blind to transitive dependencies
  * that are not also declared directly. It runs when either lockfile is
@@ -195,16 +251,33 @@ function findExtraneous(nodeModulesPath: string, declaredPackages: Record<string
  * Only actionable packages are reported: anything whose installed version
  * satisfies its declared range is left out.
  */
-function getDiffFromManifest(manifest: PackageJson, nodeModulesPath: string, options: DiffOptions): DiffResult {
+function getDiffFromManifest(pathToProject: string, manifest: PackageJson, nodeModulesPath: string, options: DiffOptions): DiffResult {
 	const { includeDevDependencies = true, includeExtraneous = false } = options;
+	const dependencyFields = includeDevDependencies ? DECLARED_DEPENDENCY_FIELDS : ['dependencies' as const];
 
 	const declaredPackages: Record<string, string> = {};
 
-	for (const field of includeDevDependencies ? DECLARED_DEPENDENCY_FIELDS : ['dependencies' as const]) {
-		for (const [packageName, declaredVersion] of Object.entries(manifest[field] ?? {})) {
-			if (typeof declaredVersion === 'string') {
-				declaredPackages[packageName] = declaredVersion;
+	// A package a workspace member declares overwrites an earlier member's
+	// declaration for the same name: only one version can be hoisted to the
+	// shared `node_modules` anyway, and reconciling genuinely conflicting
+	// ranges across members is a job of its own, not this diff's.
+	function collectDeclared(pkg: PackageJson) {
+		for (const field of dependencyFields) {
+			for (const [packageName, declaredVersion] of Object.entries(pkg[field] ?? {})) {
+				if (typeof declaredVersion === 'string') {
+					declaredPackages[packageName] = declaredVersion;
+				}
 			}
+		}
+	}
+
+	collectDeclared(manifest);
+
+	for (const memberDir of resolveWorkspaceMembers(pathToProject, manifest)) {
+		const memberManifest = readJson<PackageJson>(path.join(memberDir, MANIFEST_FILENAME));
+
+		if (memberManifest) {
+			collectDeclared(memberManifest);
 		}
 	}
 
@@ -354,7 +427,7 @@ export function getDiff(pathToProject: string, options: DiffOptions = {}): DiffR
 		return { diffs: [], error: 'node-modules-not-found' };
 	}
 
-	return getDiffFromLockfiles(pathToProject, options) ?? getDiffFromManifest(manifest, nodeModulesPath, options);
+	return getDiffFromLockfiles(pathToProject, options) ?? getDiffFromManifest(pathToProject, manifest, nodeModulesPath, options);
 }
 
 /** Turns a diff into `name@range` specs that `npm install` understands. */

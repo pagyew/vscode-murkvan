@@ -35,23 +35,31 @@ for those two. Git is handled implicitly — a checkout rewrites the lockfile an
 the watcher fires; Arc is handled explicitly, because its FUSE-backed store
 never reports changes to native watchers.
 
-Unit tests cover both diff paths, package manager detection, lockfile
-grouping, status aggregation, hashing and Arc detection. Integration tests
-cover activation, the contributed commands and the status bar.
+A single-repo npm/yarn monorepo — one shared lockfile, a `workspaces` field in
+the root manifest — is covered too: the manifest-fallback path resolves
+`workspaces` globs (a literal path, or a single trailing `*`; anything
+needing more than that, such as recursive `**`, is skipped rather than
+mis-resolved) and folds each member's own declared dependencies into the same
+diff against the one shared `node_modules`, so drift in a member package that
+never touches the root manifest is no longer invisible. npm's fast
+lockfile-vs-lockfile path already covered this without any change, since
+`package-lock.json` records the whole resolved workspace tree regardless of
+which member declared what.
+
+Unit tests cover both diff paths, workspace glob resolution, package manager
+detection, lockfile grouping, status aggregation, hashing and Arc detection.
+Integration tests cover activation, the contributed commands and the status
+bar.
 
 ## Next
 
-### 1. npm/yarn/pnpm workspaces (single-repo monorepos)
+### 1. pnpm workspaces
 
-Multi-root VS Code workspaces are covered, but a monorepo that is one Murkvan
-project on disk — one shared lockfile, a `workspaces` field in the root
-manifest — is not: only the root `package.json`'s own dependencies are
-diffed, so drift in a member package's own `dependencies` goes unnoticed
-unless it happens to also affect the root. Resolving `workspaces` globs from
-the root manifest and folding each member's declared dependencies into the
-same diff (still against the one shared `node_modules`) would close that gap
-without needing separate per-member projects — pnpm's `pnpm-workspace.yaml`
-needs its own glob source since it doesn't use the `workspaces` field.
+pnpm does not use the `workspaces` field at all — member packages are listed
+in `pnpm-workspace.yaml` instead, a YAML file. Parsing just its `packages:`
+list (without pulling in a full YAML dependency for one field) is what is
+missing to fold pnpm monorepo members into the diff the same way npm/yarn
+workspaces now are.
 
 ### 2. Recover without a reload
 

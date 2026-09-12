@@ -1,6 +1,8 @@
 import assert from 'node:assert';
+import fs from 'node:fs';
+import path from 'node:path';
 import { getDiff, getPackagesToInstall, type PackageDiff } from '../../getDiff';
-import { createProject, removeProjects } from '../helpers/fixtures';
+import { createProject, removeProjects, writeFile } from '../helpers/fixtures';
 
 function findDiff(diffs: PackageDiff[], packageName: string) {
 	const diff = diffs.find(candidate => candidate.packageName === packageName);
@@ -239,6 +241,79 @@ suite('getDiff', () => {
 				diffType: 'extra',
 				changeDirection: 'unknown',
 			}]);
+		});
+	});
+
+	suite('workspaces', () => {
+		// Regression: a dependency only a workspace member declares used to be
+		// invisible — only the root manifest's own fields were ever read.
+		test('flags drift in a dependency only a workspace member declares', () => {
+			const root = createProject({
+				manifest: { workspaces: ['packages/*'] },
+				installed: { lodash: { version: '3.10.1' } },
+			});
+
+			writeFile(root, 'packages/app/package.json', JSON.stringify({
+				name: 'app',
+				dependencies: { lodash: '^4.17.0' },
+			}));
+
+			assert.strictEqual(findDiff(getDiff(root).diffs, 'lodash').diffType, 'major');
+		});
+
+		test('supports the yarn "{ packages }" object form', () => {
+			const root = createProject({
+				manifest: { workspaces: { packages: ['packages/*'] } },
+				installed: { lodash: { version: '3.10.1' } },
+			});
+
+			writeFile(root, 'packages/app/package.json', JSON.stringify({ dependencies: { lodash: '^4.17.0' } }));
+
+			assert.strictEqual(findDiff(getDiff(root).diffs, 'lodash').diffType, 'major');
+		});
+
+		test('supports a literal workspace path without a glob', () => {
+			const root = createProject({
+				manifest: { workspaces: ['apps/api'] },
+				installed: { lodash: { version: '3.10.1' } },
+			});
+
+			writeFile(root, 'apps/api/package.json', JSON.stringify({ dependencies: { lodash: '^4.17.0' } }));
+
+			assert.strictEqual(findDiff(getDiff(root).diffs, 'lodash').diffType, 'major');
+		});
+
+		test('ignores a workspace glob match without a package.json', () => {
+			const root = createProject({
+				manifest: { workspaces: ['packages/*'] },
+				installed: { lodash: { version: '4.17.21' } },
+			});
+
+			fs.mkdirSync(path.join(root, 'packages', 'not-a-package'), { recursive: true });
+
+			assert.deepStrictEqual(getDiff(root).diffs, []);
+		});
+
+		test('does not resolve unsupported glob shapes such as "**"', () => {
+			const root = createProject({
+				manifest: { workspaces: ['packages/**'] },
+				installed: { lodash: { version: '3.10.1' } },
+			});
+
+			writeFile(root, 'packages/nested/app/package.json', JSON.stringify({ dependencies: { lodash: '^4.17.0' } }));
+
+			assert.deepStrictEqual(getDiff(root).diffs, []);
+		});
+
+		test('leaves a project without a "workspaces" field unaffected', () => {
+			const root = createProject({
+				manifest: { dependencies: { lodash: '^4.17.0' } },
+				installed: { lodash: { version: '4.17.21' } },
+			});
+
+			writeFile(root, 'packages/app/package.json', JSON.stringify({ dependencies: { lodash: '^1.0.0' } }));
+
+			assert.deepStrictEqual(getDiff(root).diffs, []);
 		});
 	});
 });
