@@ -14,7 +14,7 @@
 
 ---
 
-A VS Code extension that watches a package lockfile, compares declared dependencies with installed packages, and offers to install the changes it detects.
+A VS Code extension that watches a package lockfile, compares declared dependencies with installed packages, and offers to install the changes it detects. Works with npm, yarn, pnpm and bun.
 
 ## Install
 
@@ -27,21 +27,21 @@ Or search for **Murkvan** in the VS Code Extensions panel.
 ## Requirements
 
 - VS Code 1.96 or newer.
-- An npm project with `package.json`, `package-lock.json`, and an existing `node_modules` directory.
-- `npm` available on `PATH`.
+- A project with `package.json`, one supported lockfile (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`/`bun.lockb`), and an existing `node_modules` directory.
+- The matching package manager available on `PATH`.
 
 ## How it works
 
-1. Locates the first root-level `package-lock.json` in the workspace and remembers its hash.
+1. Locates the first root-level lockfile in the workspace, picks the package manager it belongs to, and remembers the lockfile's hash. If more than one lockfile is present — typically left over from switching managers — the `packageManager` field in `package.json` breaks the tie; otherwise npm wins, then pnpm, then yarn, then bun.
 2. Watches that file for changes. When Arc is installed, it also polls Arc's staging area, which native file watchers do not report.
 3. On a change, re-hashes the lockfile and stops there if the contents are unchanged.
-4. Compares the tree `package-lock.json` describes with the tree recorded in `node_modules/.package-lock.json` — the file npm 7+ writes to describe what it actually installed. Two JSON reads answer what the branch changed, transitive dependencies included. When either lockfile is missing or predates npm 7 (or the tree was installed by yarn/pnpm/bun), it falls back to comparing `dependencies` and `devDependencies` from `package.json` against the versions found by walking `node_modules`, using semver ranges.
-5. Offers **Install packages**, which runs `npm i --no-package-lock --no-save` pinned to the exact versions the diff named, or **Reinstall everything**, which runs `npm ci` — the sledgehammer for when the drift is large or reaches into nested/duplicated dependencies a top-level diff can't see.
+4. For npm, compares the tree `package-lock.json` describes with the tree recorded in `node_modules/.package-lock.json` — the file npm 7+ writes to describe what it actually installed. Two JSON reads answer what the branch changed, transitive dependencies included. Otherwise — an npm project predating npm 7, or any yarn/pnpm/bun project, since none of them write an npm-shaped "what's actually installed" file — it falls back to comparing `dependencies` and `devDependencies` from `package.json` against the versions found by walking `node_modules`, using semver ranges. This fallback doesn't care which manager wrote `node_modules`, so it's what makes yarn/pnpm/bun support possible without parsing their lockfile formats at all.
+5. Offers **Install packages**, which installs pinned to the exact versions the diff named without touching `package.json` or the lockfile (`npm i --no-package-lock --no-save` / `bun add --no-save`), or **Reinstall everything**, which reinstalls the whole tree straight from the lockfile (`npm ci` / `pnpm install --frozen-lockfile` / `yarn install --frozen-lockfile` / `bun install --frozen-lockfile`) — the sledgehammer for when the drift is large or reaches into nested/duplicated dependencies a top-level diff can't see. yarn's and pnpm's `add` always rewrite `package.json`, so for those two only **Reinstall everything** is offered.
 
 Progress, detected changes, and logs are available through the status bar and the **Murkvan** output channel.
 
 > [!NOTE]
-> Murkvan watches one root lockfile. It does not handle workspaces or `yarn`/`pnpm`/`bun` lockfiles yet — see the [roadmap](ROADMAP.md).
+> Murkvan watches one root lockfile — it does not yet handle workspaces or multi-root monorepos — see the [roadmap](ROADMAP.md).
 
 ## Commands
 
