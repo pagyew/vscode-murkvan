@@ -6,10 +6,19 @@ repositories.
 
 ## Where it stands
 
-The extension watches one root lockfile, re-hashes it on change, and offers to
-install whatever no longer fits — npm, yarn, pnpm and bun are all supported,
-selected from whichever lockfile is present in the workspace (`packageManager`
-in `package.json` breaks the tie when more than one is). For npm, the diff
+The extension discovers every lockfile in the workspace — not just the first —
+and tracks each as its own project: its own package manager, its own pending
+packages, its own in-flight install, so a genuine multi-root VS Code workspace
+or a folder that happens to hold more than one independent project (e.g. an
+`examples/` directory with its own lockfile) works without one project's state
+clobbering another's. One shared status bar entry aggregates all of them —
+the most attention-grabbing status wins, and a pending-changes list is
+prefixed per project once there is more than one to tell apart — and the
+install commands prompt for which project to act on when more than one
+qualifies. npm, yarn, pnpm and bun are all supported, selected per project from
+whichever lockfile is present in its directory (`packageManager` in
+`package.json` breaks the tie when a directory somehow holds more than one).
+For npm, the diff
 prefers comparing `package-lock.json` against `node_modules/.package-lock.json`
 — the tree npm 7+ actually installed — which covers transitive dependencies in
 two JSON reads. Every other case — an npm project too old to have written that
@@ -26,19 +35,23 @@ for those two. Git is handled implicitly — a checkout rewrites the lockfile an
 the watcher fires; Arc is handled explicitly, because its FUSE-backed store
 never reports changes to native watchers.
 
-Unit tests cover both diff paths, package manager detection, hashing and Arc
-detection. Integration tests cover activation, the contributed commands and
-the status bar.
+Unit tests cover both diff paths, package manager detection, lockfile
+grouping, status aggregation, hashing and Arc detection. Integration tests
+cover activation, the contributed commands and the status bar.
 
 ## Next
 
-### 1. Workspaces and monorepos
+### 1. npm/yarn/pnpm workspaces (single-repo monorepos)
 
-Today the first root-level lockfile wins and everything else is invisible. A
-monorepo needs: every workspace folder watched, `workspaces` globs from the root
-manifest resolved, and per-project state instead of the single
-`packagesToInstall` / `projectDir` pair the extension carries now. Multi-root VS
-Code workspaces fall out of the same change.
+Multi-root VS Code workspaces are covered, but a monorepo that is one Murkvan
+project on disk — one shared lockfile, a `workspaces` field in the root
+manifest — is not: only the root `package.json`'s own dependencies are
+diffed, so drift in a member package's own `dependencies` goes unnoticed
+unless it happens to also affect the root. Resolving `workspaces` globs from
+the root manifest and folding each member's declared dependencies into the
+same diff (still against the one shared `node_modules`) would close that gap
+without needing separate per-member projects — pnpm's `pnpm-workspace.yaml`
+needs its own glob source since it doesn't use the `workspaces` field.
 
 ### 2. Recover without a reload
 
@@ -66,9 +79,11 @@ restart.
 - Integration tests cannot run where `update.code.visualstudio.com` is
   unreachable. The unit suite runs anywhere; keep new logic testable without
   `vscode` wherever it can be.
-- `src/log.ts` and `src/statusBar.ts` are module singletons with mutable state.
-  They work, but they make parallel tests and multi-root support awkward; a
-  class instantiated in `activate` would be cheaper to reason about.
+- `src/log.ts` and `src/statusBar.ts` are module singletons with mutable
+  state. One shared output channel and one aggregated status bar entry across
+  every project is the right call either way, but the singleton shape still
+  makes parallel tests awkward; a class instantiated in `activate` would be
+  cheaper to reason about.
 - `npm audit` currently reports vulnerabilities in the dev toolchain. None are
   in shipped code — the bundle ships only `semver` and `chokidar` — but the
   toolchain is worth a pass.

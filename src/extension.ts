@@ -3,11 +3,12 @@ import path from 'node:path';
 import vscode from 'vscode';
 import chokidar from 'chokidar';
 import log from './log';
-import statusBar from './statusBar';
+import statusBar, { type Status } from './statusBar';
 import { getSetting } from './config';
 import { getDiff, getPackagesToInstall, type DiffError, type PackageDiff } from './getDiff';
 import { hashFile } from './hash';
-import { ALL_LOCKFILE_NAMES, detectPackageManager, getPackageManager, selectLockfile, type PackageManager } from './packageManager';
+import { ALL_LOCKFILE_NAMES, detectPackageManager, groupLockfilesByProject } from './packageManager';
+import { aggregateStatus } from './aggregateStatus';
 import { findArcRoot } from './vcs';
 
 const {window, workspace, commands} = vscode;
@@ -17,12 +18,16 @@ const LOCKFILE_HASH_KEY = 'lockfileHash';
 const CHANGE_DEBOUNCE_MS = 300;
 /** Arc mounts its store over FUSE, where native watchers stay silent. */
 const ARC_POLL_INTERVAL_MS = 1_000;
+/** Lockfiles nested inside a dependency's own tree are never a project root. */
+const LOCKFILE_SEARCH_EXCLUDE = '**/node_modules/**';
 
 const DIFF_ERRORS: Record<DiffError, string> = {
 	'manifest-not-found': 'package.json not found',
 	'manifest-unreadable': 'package.json could not be parsed',
 	'node-modules-not-found': 'node_modules not found — install dependencies once before Murkvan can compare them',
 };
+
+type NpmOutcome = 'success' | 'cancelled' | 'failed';
 
 function describeDiff({packageName, declaredVersion, installedVersion, diffType, changeDirection}: PackageDiff) {
 	const declared = declaredVersion ?? 'not declared';
@@ -32,34 +37,62 @@ function describeDiff({packageName, declaredVersion, installedVersion, diffType,
 	return `${packageName}: declared ${declared}, installed ${installed} (${diffType}${direction})`;
 }
 
-export async function activate(context: vscode.ExtensionContext) {
-	const { extension, subscriptions } = context;
-	const extensionId = extension.packageJSON.name;
-	const extensionName = extension.packageJSON.displayName;
+interface Project {
+	readonly projectDir: string;
+	getStatus(): Status;
+	getPendingPackages(): string[];
+	/** Runs the discovery + hash-check + watcher setup that used to run once at activation. */
+	initialize(): Promise<void>;
+	checkPackages(): Promise<void>;
+	installPackages(): Promise<void>;
+	reinstallAll(): Promise<void>;
+}
+
+/**
+ * Wraps one discovered lockfile — one npm/yarn/pnpm/bun project — with its
+ * own package manager, pending-package list, in-flight install, and debounce
+ * timer, so a multi-root workspace or a folder full of unrelated
+ * sub-projects doesn't have them stepping on each other's state.
+ *
+ * `label` prefixes every message this project produces once there is more
+ * than one project to tell apart; it is `undefined` in the common
+ * single-project case, where the messages read exactly as they always have.
+ */
+function createProject(
+	context: vscode.ExtensionContext,
+	lockfilePath: string,
+	label: string | undefined,
+	onStatusChanged: () => void,
+): Project {
+	const { subscriptions } = context;
+	const packageManager = detectPackageManager(lockfilePath);
+	const lockfileName = path.basename(lockfilePath);
+	const projectDir = path.dirname(lockfilePath);
+	const hashKey = `${LOCKFILE_HASH_KEY}:${projectDir}`;
+	const prefix = label ? `[${label}] ` : '';
 
 	let packagesToInstall: string[] = [];
-	let projectDir = '';
-	let lockfileName = '';
-	let packageManager: PackageManager = getPackageManager('npm');
+	let status: Status = 'searching';
 	let installation: ChildProcess | undefined;
 	let debounceTimer: NodeJS.Timeout | undefined;
 
-	statusBar.activate(extensionName);
-
-	type NpmOutcome = 'success' | 'cancelled' | 'failed';
+	function setStatus(next: Status) {
+		status = next;
+		onStatusChanged();
+	}
 
 	/** Spawns the detected package manager under a cancellable progress notification. */
-	async function runPackageManager(args: string[], cwd: string, progressTitle: string): Promise<NpmOutcome> {
-		statusBar.updateStatus('syncing');
+	async function runPackageManager(args: string[], progressTitle: string): Promise<NpmOutcome> {
+		setStatus('syncing');
 
-		log.info(`Run command "${packageManager.command} ${args.join(' ')}"`);
+		log.info(`${prefix}Run command "${packageManager.command} ${args.join(' ')}"`);
 
 		return window.withProgress({
 			location: vscode.ProgressLocation.Notification,
-			title: progressTitle,
+			title: label ? `${progressTitle} (${label})` : progressTitle,
 			cancellable: true
 		}, (progress, token) => new Promise<NpmOutcome>(resolve => {
-			const child = spawn(packageManager.command, args, { cwd, windowsHide: true });
+			const child = spawn(packageManager.command, args, { cwd: projectDir, windowsHide: true });
 			let cancelled = false;
 			let stderr = '';
 
@@ -73,51 +106,48 @@ export async function activate(context: vscode.ExtensionContext) {
 			});
 
 			child.on('error', error => {
-				log.error(`Failed to run ${packageManager.command}: ${error.message}`);
+				log.error(`${prefix}Failed to run ${packageManager.command}: ${error.message}`);
 			});
 
 			child.on('close', code => {
 				installation = undefined;
 
 				if (cancelled) {
-					log.info('Packages sync cancelled!');
-					window.showInformationMessage('Packages sync cancelled!');
+					log.info(`${prefix}Packages sync cancelled!`);
+					window.showInformationMessage(`${prefix}Packages sync cancelled!`);
 					resolve('cancelled');
 					return;
 				}
 
 				if (code === 0) {
-					log.info('Packages synced!');
-					window.showInformationMessage('Packages synced!');
+					log.info(`${prefix}Packages synced!`);
+					window.showInformationMessage(`${prefix}Packages synced!`);
 					resolve('success');
 					return;
 				}
 
-				statusBar.updateStatus('error');
-				log.error(`${packageManager.command} exited with code ${code}${stderr ? `:\n${stderr.trim()}` : ''}`);
-				window.showErrorMessage('Packages sync failed!');
+				log.error(`${prefix}${packageManager.command} exited with code ${code}${stderr ? `:\n${stderr.trim()}` : ''}`);
+				window.showErrorMessage(`${prefix}Packages sync failed!`);
 				resolve('failed');
 			});
 		}));
 	}
 
-	/** Restores the status bar once an install attempt of either kind settles. */
+	/** Restores this project's status once an install attempt of either kind settles. */
 	function reportOutcome(outcome: NpmOutcome) {
 		if (outcome === 'success') {
 			packagesToInstall = [];
-			statusBar.updateStatus('idle');
+			setStatus('idle');
 			return;
 		}
 
-		// A 'failed' run already left the status bar on 'error'; cancelling is
-		// not an error, so restore whatever was true before the run started.
-		if (outcome === 'cancelled') {
-			if (packagesToInstall.length > 0) {
-				statusBar.updateStatus('changes', packagesToInstall);
-			} else {
-				statusBar.updateStatus('idle');
-			}
+		if (outcome === 'failed') {
+			setStatus('error');
+			return;
 		}
+
+		// Cancelling is not an error, so restore whatever was true before the run started.
+		setStatus(packagesToInstall.length > 0 ? 'changes' : 'idle');
 	}
 
 	/**
@@ -128,30 +158,30 @@ export async function activate(context: vscode.ExtensionContext) {
 	 * re-resolving it from a range.
 	 *
 	 * yarn and pnpm have no such flag on `add` — it always rewrites
-	 * `package.json` — so {@link PackageManager.installArgs} returns
-	 * `undefined` for them and only {@link reinstallAll} is offered.
+	 * `package.json` — so `installArgs` returns `undefined` for them and only
+	 * {@link reinstallAll} is offered.
 	 */
-	async function installPackages(packages: string[], cwd: string) {
-		if (packages.length === 0 || cwd === '') {
-			window.showInformationMessage('Nothing to install — packages are in sync.');
+	async function installPackages(): Promise<void> {
+		if (packagesToInstall.length === 0) {
+			window.showInformationMessage(`${prefix}Nothing to install — packages are in sync.`);
 			return;
 		}
 
 		if (installation) {
-			window.showWarningMessage('Packages are already syncing.');
+			window.showWarningMessage(`${prefix}Packages are already syncing.`);
 			return;
 		}
 
-		const args = packageManager.installArgs(packages);
+		const args = packageManager.installArgs(packagesToInstall);
 
 		if (!args) {
 			window.showInformationMessage(
-				`${packageManager.id} always writes package.json when installing a package — use "Reinstall everything" instead.`
+				`${prefix}${packageManager.id} always writes package.json when installing a package — use "Reinstall everything" instead.`
 			);
 			return;
 		}
 
-		reportOutcome(await runPackageManager(args, cwd, 'Packages syncing'));
+		reportOutcome(await runPackageManager(args, 'Packages syncing'));
 	}
 
 	/**
@@ -160,104 +190,91 @@ export async function activate(context: vscode.ExtensionContext) {
 	 * only way to also fix nested or duplicated dependencies a top-level diff
 	 * can't see — and, for yarn and pnpm, the only install Murkvan offers at all.
 	 */
-	async function reinstallAll(cwd: string) {
-		if (cwd === '') {
-			window.showInformationMessage('Nothing to install — packages are in sync.');
-			return;
-		}
-
+	async function reinstallAll(): Promise<void> {
 		if (installation) {
-			window.showWarningMessage('Packages are already syncing.');
+			window.showWarningMessage(`${prefix}Packages are already syncing.`);
 			return;
 		}
 
-		reportOutcome(await runPackageManager(packageManager.reinstallArgs, cwd, 'Reinstalling all packages'));
+		reportOutcome(await runPackageManager(packageManager.reinstallArgs, 'Reinstalling all packages'));
 	}
 
-	async function checkPackages() {
+	async function checkPackages(): Promise<void> {
 		if (installation) {
 			return;
 		}
 
-		// Without a lockfile there is no project root, and a relative lookup
-		// would resolve against the extension host's working directory.
-		if (projectDir === '') {
-			log.error('No supported lockfile found — nothing to compare');
-			statusBar.updateStatus('error');
-			return;
-		}
-
-		statusBar.updateStatus('searching');
+		setStatus('searching');
 
 		const { diffs, error } = getDiff(projectDir, {
 			includeDevDependencies: getSetting('includeDevDependencies', true),
 		});
 
 		if (error) {
-			log.error(DIFF_ERRORS[error]);
-			statusBar.updateStatus('error');
+			log.error(`${prefix}${DIFF_ERRORS[error]}`);
+			setStatus('error');
 			return;
 		}
 
 		packagesToInstall = getPackagesToInstall(diffs);
 
 		if (packagesToInstall.length === 0) {
-			log.info('Installed packages are in sync with package.json');
-			statusBar.updateStatus('idle');
+			log.info(`${prefix}Installed packages are in sync with package.json`);
+			setStatus('idle');
 			return;
 		}
 
-		diffs.forEach(diff => log.info(describeDiff(diff)));
-		statusBar.updateStatus('changes', packagesToInstall);
+		diffs.forEach(diff => log.info(`${prefix}${describeDiff(diff)}`));
+		setStatus('changes');
 
 		// yarn and pnpm have no way to install specific packages without
 		// rewriting package.json, so only a full reinstall is available.
 		const canTargetInstall = packageManager.installArgs(packagesToInstall) !== undefined;
 
 		if (getSetting('autoInstall', false)) {
-			await (canTargetInstall ? installPackages(packagesToInstall, projectDir) : reinstallAll(projectDir));
+			await (canTargetInstall ? installPackages() : reinstallAll());
 			return;
 		}
 
 		const install = 'Install packages';
 		const reinstall = 'Reinstall everything';
 		const selection = await window.showInformationMessage(
-			`Changes detected: ${packagesToInstall.join(' • ')}`,
+			`${prefix}Changes detected: ${packagesToInstall.join(' • ')}`,
 			...(canTargetInstall ? [install, reinstall] : [reinstall])
 		);
 
 		if (selection === install) {
-			await installPackages(packagesToInstall, projectDir);
+			await installPackages();
 		} else if (selection === reinstall) {
-			await reinstallAll(projectDir);
+			await reinstallAll();
 		}
 	}
 
-	async function onLockfileChanged(lockfilePath: string) {
+	async function onLockfileChanged(): Promise<void> {
 		const currentHash = await hashFile(lockfilePath);
-		const previousHash = context.workspaceState.get<string>(LOCKFILE_HASH_KEY);
+		const previousHash = context.workspaceState.get<string>(hashKey);
 
-		log.info(`${lockfileName} hash: ${currentHash}`);
+		log.info(`${prefix}${lockfileName} hash: ${currentHash}`);
 
 		if (currentHash === undefined || currentHash === previousHash) {
 			return;
 		}
 
-		await context.workspaceState.update(LOCKFILE_HASH_KEY, currentHash);
+		await context.workspaceState.update(hashKey, currentHash);
 		await checkPackages();
 	}
 
-	function scheduleCheck(lockfilePath: string) {
-		log.info(`File changed: ${lockfilePath}`);
+	function scheduleCheck(changedPath: string) {
+		log.info(`${prefix}File changed: ${changedPath}`);
 
 		clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => {
 			debounceTimer = undefined;
-			void onLockfileChanged(lockfilePath);
+			void onLockfileChanged();
 		}, CHANGE_DEBOUNCE_MS);
 	}
 
-	function watchArcStage(arcRoot: string, lockfilePath: string) {
+	function watchArcStage(arcRoot: string) {
 		const stagePath = path.join(arcRoot, '.arc', 'stage');
 
 		const fileWatcher = chokidar.watch(stagePath, {
@@ -269,65 +286,153 @@ export async function activate(context: vscode.ExtensionContext) {
 		});
 
 		fileWatcher.on('change', () => scheduleCheck(lockfilePath));
-		fileWatcher.on('error', error => log.error(`Arc watcher failed: ${String(error)}`));
+		fileWatcher.on('error', error => log.error(`${prefix}Arc watcher failed: ${String(error)}`));
 
 		subscriptions.push({dispose: () => void fileWatcher.close()});
 	}
 
-	// Commands are registered before the lockfile lookup so they always resolve,
+	async function initialize(): Promise<void> {
+		const lockfileHash = await hashFile(lockfilePath);
+
+		await context.workspaceState.update(hashKey, lockfileHash);
+		log.info(`${prefix}Found ${lockfileName}: ${lockfilePath} (${packageManager.id})`);
+		log.info(`${prefix}${lockfileName} hash: ${lockfileHash}`);
+		setStatus('idle');
+
+		const lockfileUri = vscode.Uri.file(lockfilePath);
+		const workspaceFolder = workspace.getWorkspaceFolder(lockfileUri);
+		// A RelativePattern keeps the watcher working on Windows, where a raw
+		// absolute path is not a valid glob.
+		const watchPattern = workspaceFolder
+			? new vscode.RelativePattern(workspaceFolder, lockfileName)
+			: lockfilePath;
+		const lockfileWatcher = workspace.createFileSystemWatcher(watchPattern, true, false, true);
+
+		lockfileWatcher.onDidChange(uri => scheduleCheck(uri.fsPath), null, subscriptions);
+		subscriptions.push(lockfileWatcher);
+		subscriptions.push({dispose: () => clearTimeout(debounceTimer)});
+
+		const arcRoot = findArcRoot(projectDir);
+
+		if (arcRoot) {
+			log.info(`${prefix}Arc repository found: ${arcRoot}`);
+			watchArcStage(arcRoot);
+		}
+	}
+
+	return {
+		projectDir,
+		getStatus: () => status,
+		getPendingPackages: () => packagesToInstall,
+		initialize,
+		checkPackages,
+		installPackages,
+		reinstallAll,
+	};
+}
+
+export async function activate(context: vscode.ExtensionContext) {
+	const { extension, subscriptions } = context;
+	const extensionId = extension.packageJSON.name;
+	const extensionName = extension.packageJSON.displayName;
+
+	const projects: Project[] = [];
+
+	statusBar.activate(extensionName);
+
+	/** Recomputes the one shared status bar entry from every project's own state. */
+	function refreshStatusBar() {
+		const { status, packages } = aggregateStatus(projects.map(project => ({
+			label: path.basename(project.projectDir),
+			status: project.getStatus(),
+			pendingPackages: project.getPendingPackages(),
+		})));
+
+		statusBar.updateStatus(status, packages);
+	}
+
+	/**
+	 * Resolves which project a global install command should act on: the only
+	 * one when there is just one — deferring to that project's own "nothing to
+	 * install" check, same as before there was more than one project to pick
+	 * from — or a picker across every known project when there are several.
+	 * `reinstallAll` has no pending-diff precondition of its own (it fixes
+	 * drift a diff can't see at all), so the picker always lists every
+	 * project rather than only the ones currently flagged as out of sync.
+	 */
+	async function resolveTargetProject(): Promise<Project | undefined> {
+		if (projects.length === 0) {
+			window.showInformationMessage('Nothing to install — packages are in sync.');
+			return undefined;
+		}
+
+		if (projects.length === 1) {
+			return projects[0];
+		}
+
+		const picked = await window.showQuickPick(
+			projects.map(project => ({
+				label: path.basename(project.projectDir),
+				description: project.getPendingPackages().length > 0
+					? `${project.getPendingPackages().length} package(s) out of sync`
+					: 'in sync',
+				project,
+			})),
+			{ placeHolder: 'Choose which project to sync' }
+		);
+
+		return picked?.project;
+	}
+
+	// Commands are registered before project discovery so they always resolve,
 	// even in a workspace Murkvan cannot watch.
 	subscriptions.push(
 		statusBar,
 		log,
-		{dispose: () => clearTimeout(debounceTimer)},
 		commands.registerCommand(`${extensionId}.showOutputChannel`, () => log.show()),
-		commands.registerCommand(`${extensionId}.installPackages`, () => installPackages(packagesToInstall, projectDir)),
-		commands.registerCommand(`${extensionId}.checkPackages`, () => checkPackages()),
-		commands.registerCommand(`${extensionId}.reinstallAll`, () => reinstallAll(projectDir)),
+		commands.registerCommand(`${extensionId}.installPackages`, async () => {
+			await (await resolveTargetProject())?.installPackages();
+		}),
+		commands.registerCommand(`${extensionId}.checkPackages`, async () => {
+			if (projects.length === 0) {
+				log.error('No supported lockfile found — nothing to compare');
+				statusBar.updateStatus('error');
+				return;
+			}
+
+			for (const project of projects) {
+				await project.checkPackages();
+			}
+		}),
+		commands.registerCommand(`${extensionId}.reinstallAll`, async () => {
+			await (await resolveTargetProject())?.reinstallAll();
+		}),
 	);
 
-	// A workspace can hold lockfiles for more than one manager at once — a
-	// leftover from switching, most often — so every candidate is gathered and
-	// `selectLockfile` picks the one that governs the project.
-	const candidates = await workspace.findFiles(`{${ALL_LOCKFILE_NAMES.join(',')}}`, null, ALL_LOCKFILE_NAMES.length * 2);
-	const lockfilePath = selectLockfile(candidates.map(uri => uri.fsPath));
+	// A workspace can hold more than one project — a genuine multi-root
+	// workspace, or an unrelated sub-project in its own folder — so every
+	// lockfile is gathered and grouped by directory instead of only the first
+	// one found winning.
+	const matches = await workspace.findFiles(`{${ALL_LOCKFILE_NAMES.join(',')}}`, LOCKFILE_SEARCH_EXCLUDE);
+	const projectLockfiles = groupLockfilesByProject(matches.map(uri => uri.fsPath));
 
-	if (!lockfilePath) {
+	if (projectLockfiles.length === 0) {
 		log.error('No supported lockfile found');
 		statusBar.updateStatus('error');
 		return;
 	}
 
-	const lockfileUri = vscode.Uri.file(lockfilePath);
+	const isMultiRoot = projectLockfiles.length > 1;
 
-	packageManager = detectPackageManager(lockfilePath);
-	lockfileName = path.basename(lockfilePath);
-	projectDir = path.dirname(lockfilePath);
-	log.info(`Found ${lockfileName}: ${lockfilePath} (${packageManager.id})`);
+	for (const lockfilePath of projectLockfiles) {
+		const label = isMultiRoot ? path.basename(path.dirname(lockfilePath)) : undefined;
+		const project = createProject(context, lockfilePath, label, refreshStatusBar);
 
-	const lockfileHash = await hashFile(lockfilePath);
-
-	await context.workspaceState.update(LOCKFILE_HASH_KEY, lockfileHash);
-	log.info(`${lockfileName} hash: ${lockfileHash}`);
-	statusBar.updateStatus('idle');
-
-	const workspaceFolder = workspace.getWorkspaceFolder(lockfileUri);
-	// A RelativePattern keeps the watcher working on Windows, where a raw
-	// absolute path is not a valid glob.
-	const watchPattern = workspaceFolder
-		? new vscode.RelativePattern(workspaceFolder, lockfileName)
-		: lockfilePath;
-	const lockfileWatcher = workspace.createFileSystemWatcher(watchPattern, true, false, true);
-
-	lockfileWatcher.onDidChange(uri => scheduleCheck(uri.fsPath), null, subscriptions);
-	subscriptions.push(lockfileWatcher);
-
-	const arcRoot = findArcRoot(projectDir);
-
-	if (arcRoot) {
-		log.info(`Arc repository found: ${arcRoot}`);
-		watchArcStage(arcRoot, lockfilePath);
+		projects.push(project);
+		await project.initialize();
 	}
+
+	refreshStatusBar();
 }
 
 export function deactivate() {}
