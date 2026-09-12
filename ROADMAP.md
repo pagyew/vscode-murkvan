@@ -90,11 +90,18 @@ Nothing is currently planned beyond what is listed under "Later" below.
 - Integration tests cannot run where `update.code.visualstudio.com` is
   unreachable. The unit suite runs anywhere; keep new logic testable without
   `vscode` wherever it can be.
-- `src/log.ts` and `src/statusBar.ts` are module singletons with mutable
-  state. One shared output channel and one aggregated status bar entry across
-  every project is the right call either way, but the singleton shape still
-  makes parallel tests awkward; a class instantiated in `activate` would be
-  cheaper to reason about.
-- `npm audit` currently reports vulnerabilities in the dev toolchain. None are
-  in shipped code — the bundle ships only `semver` and `chokidar` — but the
-  toolchain is worth a pass.
+- `Log` and `StatusBar` (`src/log.ts`, `src/statusBar.ts`) were module
+  singletons instantiated at import time; `activate` now constructs one of
+  each itself and threads them to whatever needs them, so a test — or a
+  second activation — gets its own instance instead of sharing process-wide
+  state. `StatusBar`'s integration tests construct a fresh instance per test
+  rather than one shared across the suite, which is the point.
+- `npm audit` reported 21 vulnerabilities in the dev toolchain (none in
+  shipped code — the bundle ships only `semver` and `chokidar`), down to 0
+  after `npm audit fix`, bumping `esbuild` (dev-only; the fixed CORS issue is
+  in its `serve` mode, which this project's build script never uses) past its
+  breaking version, and a `serialize-javascript` override for the one
+  transitive advisory `npm audit fix` couldn't reach on its own (mocha's own
+  declared range can't move past 6.x without mocha itself updating; the
+  override forces 7.1.1 and the unit suite — which exercises mocha directly —
+  still passes under it).

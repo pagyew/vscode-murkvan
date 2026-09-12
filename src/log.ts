@@ -6,7 +6,7 @@ const OUTPUT_CHANNEL_NAME = "Murkvan";
 const LOG_LEVEL_SETTING = "logLevel";
 const SETTINGS_NAMESPACE = "murkvan";
 
-class Log {
+export class Log {
   private _outputChannel: vscode.OutputChannel;
   private _logLevel!: LogLevel;
   private _showOutputOnError!: boolean;
@@ -63,6 +63,3 @@ class Log {
     this._showOutputOnError = !!configuration.get("showOutputOnError");
   }
 }
-
-const logger = new Log();
-export default logger;

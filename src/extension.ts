@@ -2,8 +2,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import vscode from 'vscode';
 import chokidar from 'chokidar';
-import log from './log';
-import statusBar, { type Status } from './statusBar';
+import { Log } from './log';
+import { StatusBar, type Status } from './statusBar';
 import { getSetting } from './config';
 import { getDiff, getPackagesToInstall, type DiffError, type PackageDiff } from './getDiff';
 import { hashFile } from './hash';
@@ -63,6 +63,7 @@ function createProject(
 	lockfilePath: string,
 	label: string | undefined,
 	onStatusChanged: () => void,
+	log: Log,
 ): Project {
 	const { subscriptions } = context;
 	const packageManager = detectPackageManager(lockfilePath);
@@ -338,7 +339,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	const projects: Project[] = [];
 
-	statusBar.activate(extensionName);
+	const log = new Log();
+	const statusBar = new StatusBar(extensionName);
 
 	/** Recomputes the one shared status bar entry from every project's own state. */
 	function refreshStatusBar() {
@@ -434,7 +436,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 		for (const lockfilePath of projectLockfiles) {
 			const label = isMultiRoot ? path.basename(path.dirname(lockfilePath)) : undefined;
-			const project = createProject(context, lockfilePath, label, refreshStatusBar);
+			const project = createProject(context, lockfilePath, label, refreshStatusBar, log);
 
 			projects.push(project);
 			await project.initialize();

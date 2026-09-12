@@ -1,12 +1,17 @@
 import assert from 'node:assert';
 import * as vscode from 'vscode';
-import statusBar from '../../statusBar';
+import { StatusBar } from '../../statusBar';
 
 const EXTENSION_NAME = 'Murkvan';
 
-suite('statusBar', () => {
-	suiteSetup(() => statusBar.activate(EXTENSION_NAME));
-	suiteTeardown(() => statusBar.dispose());
+suite('StatusBar', () => {
+	// A fresh instance per test — instead of one module-level singleton shared
+	// across the whole suite — is the point of this class: no state to leak
+	// between tests that run in the same process.
+	let statusBar: StatusBar;
+
+	setup(() => { statusBar = new StatusBar(EXTENSION_NAME); });
+	teardown(() => statusBar.dispose());
 
 	test('shows an icon for every status', () => {
 		const icons: Record<string, string> = {
@@ -46,13 +51,20 @@ suite('statusBar', () => {
 		assert.strictEqual(typeof item?.tooltip, 'string');
 	});
 
-	// Regression: activate() used to overwrite the item it already owned.
-	test('replaces its item on re-activation instead of leaking one', () => {
-		const first = statusBar.get();
+	// Two instances at once — the situation a multi-root workspace or a
+	// second test both create — must not share or clobber each other's item.
+	test('keeps two instances independent', () => {
+		const other = new StatusBar('Other');
 
-		statusBar.activate(EXTENSION_NAME);
+		try {
+			statusBar.updateStatus('changes', ['a@1.0.0']);
+			other.updateStatus('idle');
 
-		assert.notStrictEqual(statusBar.get(), first);
+			assert.notStrictEqual(statusBar.get(), other.get());
+			assert.strictEqual(other.get()?.text, 'Other: $(eye)');
+		} finally {
+			other.dispose();
+		}
 	});
 
 	test('ignores updates after disposal', () => {
@@ -60,7 +72,5 @@ suite('statusBar', () => {
 		statusBar.updateStatus('idle');
 
 		assert.strictEqual(statusBar.get(), undefined);
-
-		statusBar.activate(EXTENSION_NAME);
 	});
 });
