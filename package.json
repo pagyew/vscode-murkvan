@@ -23,6 +23,9 @@
     "sync",
     "lock files",
     "npm",
+    "yarn",
+    "pnpm",
+    "bun",
     "arc",
     "watch"
   ],

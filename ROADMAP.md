@@ -6,35 +6,33 @@ repositories.
 
 ## Where it stands
 
-The extension watches one root `package-lock.json`, re-hashes it on change,
-and offers to install whatever no longer fits. The diff itself prefers
-comparing `package-lock.json` against `node_modules/.package-lock.json` — the
-tree npm 7+ actually installed — which covers transitive dependencies in two
-JSON reads; it falls back to comparing `package.json` against the versions on
-disk with semver ranges when either lockfile is missing or predates npm 7, or
-the tree was installed by another package manager. Installing pins the exact
+The extension watches one root lockfile, re-hashes it on change, and offers to
+install whatever no longer fits — npm, yarn, pnpm and bun are all supported,
+selected from whichever lockfile is present in the workspace (`packageManager`
+in `package.json` breaks the tie when more than one is). For npm, the diff
+prefers comparing `package-lock.json` against `node_modules/.package-lock.json`
+— the tree npm 7+ actually installed — which covers transitive dependencies in
+two JSON reads. Every other case — an npm project too old to have written that
+file, or any yarn/pnpm/bun project, since none of them produce an npm-shaped
+equivalent — falls back to comparing `package.json` against the versions on
+disk with semver ranges by walking `node_modules`; that fallback doesn't care
+which manager owns the tree, which is what makes the other three managers
+possible without parsing their lockfile formats. Installing pins the exact
 version each diff names — the lockfile's own resolved version, when the diff
-came from the fast path — instead of letting `npm install` re-resolve a range;
-**Reinstall everything** runs `npm ci` alongside it for drift a top-level diff
-can't see, such as nested or duplicated dependencies. Git is handled
-implicitly — a checkout rewrites the lockfile and the watcher fires; Arc is
-handled explicitly, because its FUSE-backed store never reports changes to
-native watchers.
+came from npm's fast path — instead of letting the manager re-resolve a range;
+yarn's and pnpm's `add` always rewrite `package.json`, so only **Reinstall
+everything** (their own `--frozen-lockfile` equivalent of `npm ci`) is offered
+for those two. Git is handled implicitly — a checkout rewrites the lockfile and
+the watcher fires; Arc is handled explicitly, because its FUSE-backed store
+never reports changes to native watchers.
 
-Unit tests cover both diff paths, hashing and Arc detection. Integration tests
-cover activation, the contributed commands and the status bar.
+Unit tests cover both diff paths, package manager detection, hashing and Arc
+detection. Integration tests cover activation, the contributed commands and
+the status bar.
 
 ## Next
 
-### 1. Other package managers
-
-The lockfile, the install command and the diff source are the only
-manager-specific parts. A `PackageManager` interface with `npm`, `yarn`, `pnpm`
-and `bun` implementations, selected from the lockfile present in the workspace
-(and from `packageManager` in `package.json`), keeps the rest of the extension
-unchanged. pnpm's symlinked store needs its own tree reader.
-
-### 2. Workspaces and monorepos
+### 1. Workspaces and monorepos
 
 Today the first root-level lockfile wins and everything else is invisible. A
 monorepo needs: every workspace folder watched, `workspaces` globs from the root
@@ -42,7 +40,7 @@ manifest resolved, and per-project state instead of the single
 `packagesToInstall` / `projectDir` pair the extension carries now. Multi-root VS
 Code workspaces fall out of the same change.
 
-### 3. Recover without a reload
+### 2. Recover without a reload
 
 When no lockfile is found, Murkvan logs an error and stays inert until the
 window is reloaded. Watching for the lockfile's creation and re-running

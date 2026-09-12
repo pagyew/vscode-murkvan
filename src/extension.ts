@@ -7,17 +7,16 @@ import statusBar from './statusBar';
 import { getSetting } from './config';
 import { getDiff, getPackagesToInstall, type DiffError, type PackageDiff } from './getDiff';
 import { hashFile } from './hash';
+import { ALL_LOCKFILE_NAMES, detectPackageManager, getPackageManager, selectLockfile, type PackageManager } from './packageManager';
 import { findArcRoot } from './vcs';
 
 const {window, workspace, commands} = vscode;
 
-const PACKAGE_LOCK_FILENAME = 'package-lock.json';
-const PACKAGE_LOCK_HASH_KEY = 'packageLockHash';
+const LOCKFILE_HASH_KEY = 'lockfileHash';
 /** Git and npm rewrite the lockfile in bursts; collapse them into one check. */
 const CHANGE_DEBOUNCE_MS = 300;
 /** Arc mounts its store over FUSE, where native watchers stay silent. */
 const ARC_POLL_INTERVAL_MS = 1_000;
-const NPM_COMMAND = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 const DIFF_ERRORS: Record<DiffError, string> = {
 	'manifest-not-found': 'package.json not found',
@@ -40,6 +39,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	let packagesToInstall: string[] = [];
 	let projectDir = '';
+	let lockfileName = '';
+	let packageManager: PackageManager = getPackageManager('npm');
 	let installation: ChildProcess | undefined;
 	let debounceTimer: NodeJS.Timeout | undefined;
 
@@ -47,35 +48,35 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	type NpmOutcome = 'success' | 'cancelled' | 'failed';
 
-	/** Spawns `npm <args>` under a cancellable progress notification. */
-	async function runNpm(args: string[], cwd: string, progressTitle: string): Promise<NpmOutcome> {
+	/** Spawns the detected package manager under a cancellable progress notification. */
+	async function runPackageManager(args: string[], cwd: string, progressTitle: string): Promise<NpmOutcome> {
 		statusBar.updateStatus('syncing');
 
-		log.info(`Run command "npm ${args.join(' ')}"`);
+		log.info(`Run command "${packageManager.command} ${args.join(' ')}"`);
 
 		return window.withProgress({
 			location: vscode.ProgressLocation.Notification,
 			title: progressTitle,
 			cancellable: true
 		}, (progress, token) => new Promise<NpmOutcome>(resolve => {
-			const npm = spawn(NPM_COMMAND, args, { cwd, windowsHide: true });
+			const child = spawn(packageManager.command, args, { cwd, windowsHide: true });
 			let cancelled = false;
 			let stderr = '';
 
-			installation = npm;
+			installation = child;
 
-			npm.stderr?.on('data', chunk => { stderr += chunk.toString(); });
+			child.stderr?.on('data', chunk => { stderr += chunk.toString(); });
 
 			token.onCancellationRequested(() => {
 				cancelled = true;
-				npm.kill();
+				child.kill();
 			});
 
-			npm.on('error', error => {
-				log.error(`Failed to run npm: ${error.message}`);
+			child.on('error', error => {
+				log.error(`Failed to run ${packageManager.command}: ${error.message}`);
 			});
 
-			npm.on('close', code => {
+			child.on('close', code => {
 				installation = undefined;
 
 				if (cancelled) {
@@ -93,7 +94,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				}
 
 				statusBar.updateStatus('error');
-				log.error(`npm exited with code ${code}${stderr ? `:\n${stderr.trim()}` : ''}`);
+				log.error(`${packageManager.command} exited with code ${code}${stderr ? `:\n${stderr.trim()}` : ''}`);
 				window.showErrorMessage('Packages sync failed!');
 				resolve('failed');
 			});
@@ -122,8 +123,13 @@ export async function activate(context: vscode.ExtensionContext) {
 	/**
 	 * Installs exactly the packages `getDiff` flagged, each pinned to the
 	 * version its diff names — the lockfile's own resolved version when the
-	 * diff came from the fast lockfile-diffing path, since `--no-package-lock`
-	 * stops npm from re-resolving it from a range.
+	 * diff came from the fast lockfile-diffing path, since npm's
+	 * `--no-package-lock` (or bun's `--no-save`) stops the manager from
+	 * re-resolving it from a range.
+	 *
+	 * yarn and pnpm have no such flag on `add` — it always rewrites
+	 * `package.json` — so {@link PackageManager.installArgs} returns
+	 * `undefined` for them and only {@link reinstallAll} is offered.
 	 */
 	async function installPackages(packages: string[], cwd: string) {
 		if (packages.length === 0 || cwd === '') {
@@ -136,14 +142,23 @@ export async function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		reportOutcome(await runNpm(['i', '--no-package-lock', '--no-save', ...packages], cwd, 'Packages syncing'));
+		const args = packageManager.installArgs(packages);
+
+		if (!args) {
+			window.showInformationMessage(
+				`${packageManager.id} always writes package.json when installing a package — use "Reinstall everything" instead.`
+			);
+			return;
+		}
+
+		reportOutcome(await runPackageManager(args, cwd, 'Packages syncing'));
 	}
 
 	/**
-	 * The sledgehammer: `npm ci` wipes `node_modules` and reinstalls the whole
-	 * tree from the lockfile. Slower than {@link installPackages}, but the
+	 * The sledgehammer: reinstalls the whole tree straight from the lockfile
+	 * (`npm ci` and equivalents). Slower than {@link installPackages}, but the
 	 * only way to also fix nested or duplicated dependencies a top-level diff
-	 * can't see.
+	 * can't see — and, for yarn and pnpm, the only install Murkvan offers at all.
 	 */
 	async function reinstallAll(cwd: string) {
 		if (cwd === '') {
@@ -156,7 +171,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		reportOutcome(await runNpm(['ci'], cwd, 'Reinstalling all packages'));
+		reportOutcome(await runPackageManager(packageManager.reinstallArgs, cwd, 'Reinstalling all packages'));
 	}
 
 	async function checkPackages() {
@@ -167,7 +182,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		// Without a lockfile there is no project root, and a relative lookup
 		// would resolve against the extension host's working directory.
 		if (projectDir === '') {
-			log.error(`No ${PACKAGE_LOCK_FILENAME} found — nothing to compare`);
+			log.error('No supported lockfile found — nothing to compare');
 			statusBar.updateStatus('error');
 			return;
 		}
@@ -195,8 +210,12 @@ export async function activate(context: vscode.ExtensionContext) {
 		diffs.forEach(diff => log.info(describeDiff(diff)));
 		statusBar.updateStatus('changes', packagesToInstall);
 
+		// yarn and pnpm have no way to install specific packages without
+		// rewriting package.json, so only a full reinstall is available.
+		const canTargetInstall = packageManager.installArgs(packagesToInstall) !== undefined;
+
 		if (getSetting('autoInstall', false)) {
-			await installPackages(packagesToInstall, projectDir);
+			await (canTargetInstall ? installPackages(packagesToInstall, projectDir) : reinstallAll(projectDir));
 			return;
 		}
 
@@ -204,8 +223,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		const reinstall = 'Reinstall everything';
 		const selection = await window.showInformationMessage(
 			`Changes detected: ${packagesToInstall.join(' • ')}`,
-			install,
-			reinstall
+			...(canTargetInstall ? [install, reinstall] : [reinstall])
 		);
 
 		if (selection === install) {
@@ -217,15 +235,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	async function onLockfileChanged(lockfilePath: string) {
 		const currentHash = await hashFile(lockfilePath);
-		const previousHash = context.workspaceState.get<string>(PACKAGE_LOCK_HASH_KEY);
+		const previousHash = context.workspaceState.get<string>(LOCKFILE_HASH_KEY);
 
-		log.info(`${PACKAGE_LOCK_FILENAME} hash: ${currentHash}`);
+		log.info(`${lockfileName} hash: ${currentHash}`);
 
 		if (currentHash === undefined || currentHash === previousHash) {
 			return;
 		}
 
-		await context.workspaceState.update(PACKAGE_LOCK_HASH_KEY, currentHash);
+		await context.workspaceState.update(LOCKFILE_HASH_KEY, currentHash);
 		await checkPackages();
 	}
 
@@ -268,35 +286,41 @@ export async function activate(context: vscode.ExtensionContext) {
 		commands.registerCommand(`${extensionId}.reinstallAll`, () => reinstallAll(projectDir)),
 	);
 
-	const [packageLockFile] = await workspace.findFiles(PACKAGE_LOCK_FILENAME, null, 1);
+	// A workspace can hold lockfiles for more than one manager at once — a
+	// leftover from switching, most often — so every candidate is gathered and
+	// `selectLockfile` picks the one that governs the project.
+	const candidates = await workspace.findFiles(`{${ALL_LOCKFILE_NAMES.join(',')}}`, null, ALL_LOCKFILE_NAMES.length * 2);
+	const lockfilePath = selectLockfile(candidates.map(uri => uri.fsPath));
 
-	if (!packageLockFile) {
-		log.error(`No ${PACKAGE_LOCK_FILENAME} found`);
+	if (!lockfilePath) {
+		log.error('No supported lockfile found');
 		statusBar.updateStatus('error');
 		return;
 	}
 
-	const lockfilePath = packageLockFile.fsPath;
+	const lockfileUri = vscode.Uri.file(lockfilePath);
 
+	packageManager = detectPackageManager(lockfilePath);
+	lockfileName = path.basename(lockfilePath);
 	projectDir = path.dirname(lockfilePath);
-	log.info(`Found ${PACKAGE_LOCK_FILENAME}: ${lockfilePath}`);
+	log.info(`Found ${lockfileName}: ${lockfilePath} (${packageManager.id})`);
 
-	const packageLockHash = await hashFile(lockfilePath);
+	const lockfileHash = await hashFile(lockfilePath);
 
-	await context.workspaceState.update(PACKAGE_LOCK_HASH_KEY, packageLockHash);
-	log.info(`${PACKAGE_LOCK_FILENAME} hash: ${packageLockHash}`);
+	await context.workspaceState.update(LOCKFILE_HASH_KEY, lockfileHash);
+	log.info(`${lockfileName} hash: ${lockfileHash}`);
 	statusBar.updateStatus('idle');
 
-	const workspaceFolder = workspace.getWorkspaceFolder(packageLockFile);
+	const workspaceFolder = workspace.getWorkspaceFolder(lockfileUri);
 	// A RelativePattern keeps the watcher working on Windows, where a raw
 	// absolute path is not a valid glob.
 	const watchPattern = workspaceFolder
-		? new vscode.RelativePattern(workspaceFolder, PACKAGE_LOCK_FILENAME)
+		? new vscode.RelativePattern(workspaceFolder, lockfileName)
 		: lockfilePath;
-	const packageLockWatcher = workspace.createFileSystemWatcher(watchPattern, true, false, true);
+	const lockfileWatcher = workspace.createFileSystemWatcher(watchPattern, true, false, true);
 
-	packageLockWatcher.onDidChange(uri => scheduleCheck(uri.fsPath), null, subscriptions);
-	subscriptions.push(packageLockWatcher);
+	lockfileWatcher.onDidChange(uri => scheduleCheck(uri.fsPath), null, subscriptions);
+	subscriptions.push(lockfileWatcher);
 
 	const arcRoot = findArcRoot(projectDir);
 
