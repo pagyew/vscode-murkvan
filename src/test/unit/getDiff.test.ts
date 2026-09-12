@@ -243,6 +243,244 @@ suite('getDiff', () => {
 	});
 });
 
+suite('getDiff from lockfiles', () => {
+	teardown(removeProjects);
+
+	test('prefers the lockfiles over walking node_modules when both are valid', () => {
+		const root = createProject({
+			manifest: { dependencies: { lodash: '^4.0.0' } },
+			// The manifest-walk fallback would find this and report it in sync;
+			// the lockfile path must win and report the mismatch it describes.
+			installed: { lodash: { version: '4.17.21' } },
+			lockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/lodash': { version: '4.18.0' },
+			} },
+			installedLockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/lodash': { version: '4.17.21' },
+			} },
+		});
+
+		assert.deepStrictEqual(findDiff(getDiff(root).diffs, 'lodash'), {
+			packageName: 'lodash',
+			declaredVersion: '4.18.0',
+			installedVersion: '4.17.21',
+			diffType: 'minor',
+			changeDirection: 'upgrade',
+		});
+	});
+
+	test('covers a transitive dependency package.json never declares directly', () => {
+		const root = createProject({
+			manifest: { dependencies: { consumer: '^1.0.0' } },
+			lockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/consumer': { version: '1.0.0' },
+				'node_modules/transitive': { version: '2.0.0' },
+			} },
+			installedLockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/consumer': { version: '1.0.0' },
+				'node_modules/transitive': { version: '1.0.0' },
+			} },
+		});
+
+		assert.strictEqual(findDiff(getDiff(root).diffs, 'transitive').diffType, 'major');
+	});
+
+	test('reports a package the installed lockfile is missing entirely', () => {
+		const root = createProject({
+			manifest: { dependencies: { lodash: '^4.0.0' } },
+			lockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/lodash': { version: '4.18.0' },
+			} },
+			installedLockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+			} },
+		});
+
+		assert.deepStrictEqual(findDiff(getDiff(root).diffs, 'lodash'), {
+			packageName: 'lodash',
+			declaredVersion: '4.18.0',
+			diffType: 'missing',
+			changeDirection: 'upgrade',
+		});
+	});
+
+	test('reports no diff when the installed version matches exactly', () => {
+		const root = createProject({
+			manifest: { dependencies: { lodash: '^4.0.0' } },
+			lockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/lodash': { version: '4.18.0' },
+			} },
+			installedLockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/lodash': { version: '4.18.0' },
+			} },
+		});
+
+		assert.deepStrictEqual(getDiff(root).diffs, []);
+	});
+
+	test('reports an installed version ahead of the lockfile as a downgrade', () => {
+		const root = createProject({
+			manifest: { dependencies: { react: '18.2.0' } },
+			lockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/react': { version: '18.2.0' },
+			} },
+			installedLockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/react': { version: '19.1.0' },
+			} },
+		});
+
+		assert.deepStrictEqual(findDiff(getDiff(root).diffs, 'react'), {
+			packageName: 'react',
+			declaredVersion: '18.2.0',
+			installedVersion: '19.1.0',
+			diffType: 'major',
+			changeDirection: 'downgrade',
+		});
+	});
+
+	test('falls back to "unknown" for an unparsable installed version', () => {
+		const root = createProject({
+			manifest: { dependencies: { broken: '^1.0.0' } },
+			lockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/broken': { version: '1.0.0' },
+			} },
+			installedLockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/broken': { version: 'not-a-version' },
+			} },
+		});
+
+		assert.deepStrictEqual(findDiff(getDiff(root).diffs, 'broken'), {
+			packageName: 'broken',
+			declaredVersion: '1.0.0',
+			installedVersion: 'not-a-version',
+			diffType: 'unknown',
+			changeDirection: 'unknown',
+		});
+	});
+
+	test('skips workspace members symlinked into node_modules', () => {
+		const root = createProject({
+			manifest: { dependencies: { linked: 'workspace:*' } },
+			lockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/linked': { link: true, resolved: 'packages/linked' },
+			} },
+			installedLockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/linked': { link: true, resolved: 'packages/linked' },
+			} },
+		});
+
+		assert.deepStrictEqual(getDiff(root).diffs, []);
+	});
+
+	suite('devDependencies', () => {
+		const project = () => createProject({
+			manifest: { dependencies: {}, devDependencies: { typescript: '^5.7.0' } },
+			lockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/typescript': { version: '5.7.0', dev: true },
+			} },
+			installedLockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/typescript': { version: '4.9.5', dev: true },
+			} },
+		});
+
+		test('are compared by default', () => {
+			assert.strictEqual(findDiff(getDiff(project()).diffs, 'typescript').diffType, 'major');
+		});
+
+		test('are skipped when disabled', () => {
+			assert.deepStrictEqual(getDiff(project(), { includeDevDependencies: false }).diffs, []);
+		});
+	});
+
+	suite('extraneous packages', () => {
+		const project = () => createProject({
+			manifest: { dependencies: { consumer: '^1.0.0' } },
+			lockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/consumer': { version: '1.0.0' },
+			} },
+			installedLockfile: { lockfileVersion: 3, packages: {
+				'': { name: 'root', version: '1.0.0' },
+				'node_modules/consumer': { version: '1.0.0' },
+				'node_modules/leftover': { version: '9.9.9' },
+			} },
+		});
+
+		test('are not reported by default', () => {
+			assert.deepStrictEqual(getDiff(project()).diffs, []);
+		});
+
+		test('report packages the desired lockfile does not list', () => {
+			assert.deepStrictEqual(getDiff(project(), { includeExtraneous: true }).diffs, [{
+				packageName: 'leftover',
+				installedVersion: '9.9.9',
+				diffType: 'extra',
+				changeDirection: 'unknown',
+			}]);
+		});
+	});
+
+	suite('fallback to node_modules', () => {
+		test('falls back when node_modules/.package-lock.json is missing (e.g. yarn or pnpm)', () => {
+			const root = createProject({
+				manifest: { dependencies: { react: '^19.0.0' } },
+				installed: { react: { version: '18.3.1' } },
+				lockfile: { lockfileVersion: 3, packages: {
+					'': { name: 'root', version: '1.0.0' },
+					'node_modules/react': { version: '19.0.0' },
+				} },
+			});
+
+			assert.deepStrictEqual(findDiff(getDiff(root).diffs, 'react'), {
+				packageName: 'react',
+				declaredVersion: '^19.0.0',
+				installedVersion: '18.3.1',
+				diffType: 'major',
+				changeDirection: 'upgrade',
+			});
+		});
+
+		test('falls back when package-lock.json has no lockfileVersion-3 "packages" field', () => {
+			const root = createProject({
+				manifest: { dependencies: { react: '^19.0.0' } },
+				installed: { react: { version: '18.3.1' } },
+				lockfile: { lockfileVersion: 1, dependencies: { react: { version: '19.0.0' } } },
+				installedLockfile: { lockfileVersion: 1, dependencies: { react: { version: '18.3.1' } } },
+			});
+
+			assert.strictEqual(findDiff(getDiff(root).diffs, 'react').diffType, 'major');
+		});
+
+		test('falls back when package-lock.json is absent', () => {
+			const root = createProject({
+				manifest: { dependencies: { react: '^19.0.0' } },
+				installed: { react: { version: '18.3.1' } },
+				installedLockfile: { lockfileVersion: 3, packages: {
+					'': { name: 'root', version: '1.0.0' },
+					'node_modules/react': { version: '18.3.1' },
+				} },
+			});
+
+			assert.strictEqual(findDiff(getDiff(root).diffs, 'react').diffType, 'major');
+		});
+	});
+});
+
 suite('getPackagesToInstall', () => {
 	test('builds name@range specs', () => {
 		assert.deepStrictEqual(getPackagesToInstall([

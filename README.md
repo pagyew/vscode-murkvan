@@ -35,7 +35,7 @@ Or search for **Murkvan** in the VS Code Extensions panel.
 1. Locates the first root-level `package-lock.json` in the workspace and remembers its hash.
 2. Watches that file for changes. When Arc is installed, it also polls Arc's staging area, which native file watchers do not report.
 3. On a change, re-hashes the lockfile and stops there if the contents are unchanged.
-4. Compares `dependencies` and `devDependencies` from `package.json` with the versions in `node_modules`, using semver ranges: a package is reported only when the installed version cannot satisfy the declared range.
+4. Compares the tree `package-lock.json` describes with the tree recorded in `node_modules/.package-lock.json` — the file npm 7+ writes to describe what it actually installed. Two JSON reads answer what the branch changed, transitive dependencies included. When either lockfile is missing or predates npm 7 (or the tree was installed by yarn/pnpm/bun), it falls back to comparing `dependencies` and `devDependencies` from `package.json` against the versions found by walking `node_modules`, using semver ranges.
 5. Offers **Install packages**, then runs `npm i --no-package-lock --no-save` with the packages that are out of step.
 
 Progress, detected changes, and logs are available through the status bar and the **Murkvan** output channel.
