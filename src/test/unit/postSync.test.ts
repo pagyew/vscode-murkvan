@@ -1,4 +1,5 @@
 import assert from 'node:assert';
+import fs from 'node:fs';
 import os from 'node:os';
 import { runShellCommand } from '../../postSync';
 
@@ -25,9 +26,12 @@ suite('runShellCommand', () => {
 		assert.match(result.stderr, /bad/);
 	});
 
+	// Compares realpaths, not raw strings: os.tmpdir() is /tmp on macOS, a
+	// symlink to /private/tmp that the spawned shell resolves before
+	// reporting process.cwd(), so the raw strings never match there.
 	test('runs in the given cwd', async () => {
 		const result = await runShellCommand('node -e "console.log(process.cwd())"', os.tmpdir());
 
-		assert.strictEqual(result.stdout.trim(), os.tmpdir());
+		assert.strictEqual(fs.realpathSync(result.stdout.trim()), fs.realpathSync(os.tmpdir()));
 	});
 });
