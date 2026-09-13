@@ -82,9 +82,18 @@ function createProject(
 		onStatusChanged();
 	}
 
-	/** Spawns the detected package manager under a cancellable progress notification. */
-	async function runPackageManager(args: string[], progressTitle: string): Promise<NpmOutcome> {
+	/**
+	 * Spawns the detected package manager under a cancellable progress
+	 * notification.
+	 *
+	 * @param packageCount how many packages this run targets, for the timing
+	 * line logged on success — `undefined` for a full reinstall, where no
+	 * count is known up front.
+	 */
+	async function runPackageManager(args: string[], progressTitle: string, packageCount: number | undefined): Promise<NpmOutcome> {
 		setStatus('syncing');
+
+		const startedAt = Date.now();
 
 		log.info(`${prefix}Run command "${packageManager.command} ${args.join(' ')}"`);
 
@@ -121,7 +130,10 @@ function createProject(
 				}
 
 				if (code === 0) {
-					log.info(`${prefix}Packages synced!`);
+					const durationSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+					const scope = packageCount === undefined ? 'reinstalled everything' : `${packageCount} package${packageCount === 1 ? '' : 's'}`;
+
+					log.info(`${prefix}Packages synced in ${durationSeconds}s (${scope})`);
 					window.showInformationMessage(`${prefix}Packages synced!`);
 					resolve('success');
 					return;
@@ -182,7 +194,7 @@ function createProject(
 			return;
 		}
 
-		reportOutcome(await runPackageManager(args, 'Packages syncing'));
+		reportOutcome(await runPackageManager(args, 'Packages syncing', packagesToInstall.length));
 	}
 
 	/**
@@ -197,7 +209,7 @@ function createProject(
 			return;
 		}
 
-		reportOutcome(await runPackageManager(packageManager.reinstallArgs, 'Reinstalling all packages'));
+		reportOutcome(await runPackageManager(packageManager.reinstallArgs, 'Reinstalling all packages', undefined));
 	}
 
 	async function checkPackages(): Promise<void> {
