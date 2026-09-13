@@ -10,6 +10,7 @@
     <img src="https://img.shields.io/badge/license-MIT-0f766e?style=flat-square" alt="license: MIT" />
   </p>
   <p><a href="#install">Install</a> · <a href="#features">Features</a> · <a href="#commands">Commands</a> · <a href="https://github.com/pagyew/vscode-murkvan/releases">Releases</a></p>
+  <p><sub>English · <a href="README.ru.md">Русский</a></sub></p>
 </div>
 
 ---

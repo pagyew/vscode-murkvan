@@ -7,3 +7,6 @@ node_modules
 
 # Ignore the sandbox directory
 sandbox/
+
+# Claude Code Remote session-local runtime state, not project source
+.claude/

@@ -172,7 +172,9 @@
     "test:integration": "vscode-test",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "npm run test:unit && npm run test:integration"
+    "test": "npm run test:unit && npm run test:integration",
+    "vsix": "vsce package",
+    "publish:vsce": "vsce publish"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -183,6 +185,7 @@
     "@typescript-eslint/parser": "^8.17.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^3.2.1",
     "bumpp": "^10.0.3",
     "chokidar": "^4.0.3",
     "esbuild": "^0.28.2",
