@@ -10,6 +10,7 @@ import { hashFile } from './hash';
 import { ALL_LOCKFILE_NAMES, detectPackageManager, groupLockfilesByProject } from './packageManager';
 import { aggregateStatus } from './aggregateStatus';
 import { findArcRoot, getCurrentBranch } from './vcs';
+import { runShellCommand } from './postSync';
 
 const {window, workspace, commands} = vscode;
 
@@ -159,6 +160,32 @@ function createProject(
 		}));
 	}
 
+	/**
+	 * Runs `murkvan.postSyncCommand`, if set, in this project's directory
+	 * after a successful sync. A non-zero exit is logged and surfaced as a
+	 * warning rather than an error — the sync itself already succeeded.
+	 */
+	async function runPostSync(): Promise<void> {
+		const command = getSetting('postSyncCommand', '');
+
+		if (!command) {
+			return;
+		}
+
+		log.info(`${prefix}Run post-sync command "${command}"`);
+
+		const { code, stdout, stderr } = await runShellCommand(command, projectDir);
+
+		if (code === 0) {
+			return;
+		}
+
+		const output = [stdout, stderr].map(chunk => chunk.trim()).filter(Boolean).join('\n');
+
+		log.error(`${prefix}Post-sync command exited with code ${code}${output ? `:\n${output}` : ''}`);
+		window.showWarningMessage(`${prefix}Post-sync command failed — see the Murkvan output channel for details.`);
+	}
+
 	/** Restores this project's status once an install attempt of either kind settles. */
 	function reportOutcome(outcome: NpmOutcome) {
 		if (outcome === 'success') {
@@ -207,7 +234,13 @@ function createProject(
 			return;
 		}
 
-		reportOutcome(await runPackageManager(args, 'Packages syncing', packagesToInstall.length));
+		const outcome = await runPackageManager(args, 'Packages syncing', packagesToInstall.length);
+
+		reportOutcome(outcome);
+
+		if (outcome === 'success') {
+			await runPostSync();
+		}
 	}
 
 	/**
@@ -222,7 +255,13 @@ function createProject(
 			return;
 		}
 
-		reportOutcome(await runPackageManager(packageManager.reinstallArgs, 'Reinstalling all packages', undefined));
+		const outcome = await runPackageManager(packageManager.reinstallArgs, 'Reinstalling all packages', undefined);
+
+		reportOutcome(outcome);
+
+		if (outcome === 'success') {
+			await runPostSync();
+		}
 	}
 
 	async function checkPackages(): Promise<void> {

@@ -78,6 +78,12 @@ a branch already synced is a no-op instead of a re-check; a non-git project,
 or one where `git` isn't on `PATH`, still remembers a single hash for the
 whole project, exactly as before branches were tracked.
 
+`murkvan.postSyncCommand`, left empty by default, runs in a project's own
+directory after every successful sync — for a `prisma generate` or codegen
+step a targeted install doesn't retrigger on its own. A non-zero exit is
+logged and shown as a warning rather than an error, since the sync itself
+already succeeded.
+
 ## Next
 
 Nothing is currently planned beyond what is listed under "Later" below.
@@ -88,8 +94,6 @@ Nothing is currently planned beyond what is listed under "Later" below.
   with install-one and install-all actions, instead of one notification line.
 - **Per-project trust.** `autoInstall` is all-or-nothing; a workspace-level
   prompt ("always sync this project") is friendlier than a global setting.
-- **Run scripts after install.** Some projects need `prisma generate` or a
-  postinstall build to be usable after a branch switch.
 
 ## Engineering debt
 
