@@ -67,6 +67,11 @@ per-member-then-root resolution order is itself covered by a regression test.
 Integration tests cover activation, the contributed commands and the status
 bar.
 
+Every successful sync logs how long it took and how many packages were
+involved (`Packages synced in 4.2s (3 packages)`, or `(reinstalled
+everything)` for a full reinstall) — telemetry for the developer reading the
+output channel, not for anyone else.
+
 ## Next
 
 Nothing is currently planned beyond what is listed under "Later" below.
@@ -81,9 +86,6 @@ Nothing is currently planned beyond what is listed under "Later" below.
   prompt ("always sync this project") is friendlier than a global setting.
 - **Run scripts after install.** Some projects need `prisma generate` or a
   postinstall build to be usable after a branch switch.
-- **Telemetry for the developer, not the vendor.** Log how long each sync took
-  and how many packages moved, so the output channel can answer "why was that
-  slow?".
 
 ## Engineering debt
 
