@@ -94,6 +94,11 @@
           "type": "boolean",
           "default": false,
           "description": "Install detected changes immediately instead of asking first."
+        },
+        "murkvan.postSyncCommand": {
+          "type": "string",
+          "default": "",
+          "description": "Shell command to run in the project directory after every successful sync, e.g. \"npx prisma generate\". Left empty, nothing runs."
         }
       }
     }
