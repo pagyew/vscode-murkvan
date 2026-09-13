@@ -9,7 +9,7 @@
     <img src="https://img.shields.io/badge/npm-dependency%20sync-cb3837?style=flat-square" alt="npm: dependency sync" />
     <img src="https://img.shields.io/badge/license-MIT-0f766e?style=flat-square" alt="license: MIT" />
   </p>
-  <p><a href="#install">Install</a> · <a href="#how-it-works">How it works</a> · <a href="#commands">Commands</a> · <a href="https://github.com/pagyew/vscode-murkvan/releases">Releases</a></p>
+  <p><a href="#install">Install</a> · <a href="#features">Features</a> · <a href="#commands">Commands</a> · <a href="https://github.com/pagyew/vscode-murkvan/releases">Releases</a></p>
 </div>
 
 ---
@@ -30,20 +30,18 @@ Or search for **Murkvan** in the VS Code Extensions panel.
 - A project with `package.json`, one supported lockfile (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`/`bun.lockb`), and an existing `node_modules` directory.
 - The matching package manager available on `PATH`.
 
-## How it works
+## Features
 
-1. Finds every supported lockfile in the workspace and tracks each as its own project — its own package manager, its own pending packages, its own in-flight install — so a multi-root workspace or a folder holding more than one independent project (e.g. an `examples/` directory with its own lockfile) works without them interfering with each other. Within one project's directory, if more than one lockfile is present — typically left over from switching managers — the `packageManager` field in `package.json` breaks the tie; otherwise npm wins, then pnpm, then yarn, then bun. If none is found at all — a fresh `git clone`, before `npm install` has ever run — Murkvan watches for one to be created and tries again, instead of staying inert until the window is reloaded.
-2. Watches each project's lockfile for changes. When Arc is installed, it also polls Arc's staging area, which native file watchers do not report.
-3. On a change, re-hashes that lockfile and stops there if the contents match the hash already remembered for the current Git branch — so switching back to a branch already synced is a no-op instead of a re-check. A non-git project, or one where `git` isn't on `PATH`, remembers a single hash for the whole project, exactly as before branches were tracked.
-4. For npm, compares the tree `package-lock.json` describes with the tree recorded in `node_modules/.package-lock.json` — the file npm 7+ writes to describe what it actually installed. Two JSON reads answer what the branch changed, transitive dependencies included. Otherwise — an npm project predating npm 7, or any yarn/pnpm/bun project, since none of them write an npm-shaped "what's actually installed" file — it falls back to comparing `dependencies` and `devDependencies` from `package.json`, and from every workspace member's own `package.json` for a monorepo (`workspaces` for npm/yarn, `pnpm-workspace.yaml` for pnpm), against the versions found by walking `node_modules` — each member's own `node_modules` first, the shared root one second, since pnpm doesn't hoist workspace members to the root the way npm/yarn do. This fallback doesn't care which manager wrote `node_modules`, so it's what makes yarn/pnpm/bun support possible without parsing their lockfile formats at all.
-5. Offers **Install packages**, which installs pinned to the exact versions the diff named without touching `package.json` or the lockfile (`npm i --no-package-lock --no-save` / `bun add --no-save`), or **Reinstall everything**, which reinstalls the whole tree straight from the lockfile (`npm ci` / `pnpm install --frozen-lockfile` / `yarn install --frozen-lockfile` / `bun install --frozen-lockfile`) — the sledgehammer for when the drift is large or reaches into nested/duplicated dependencies a top-level diff can't see. yarn's and pnpm's `add` always rewrite `package.json`, so for those two only **Reinstall everything** is offered. With more than one project open, either command asks which one to act on first.
-6. After a successful sync, runs `murkvan.postSyncCommand` (if set) in that project's directory — for a `prisma generate` or a codegen step that a targeted install doesn't retrigger on its own. A non-zero exit is logged and shown as a warning, not an error, since the sync itself already succeeded.
+- **Watches your lockfile.** The moment `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, or `bun.lock`/`bun.lockb` changes — most often right after `git checkout` — Murkvan checks whether what's installed still matches what's declared.
+- **One-click sync.** Found drift? A notification offers **Install packages** (just the changes) or **Reinstall everything** (a full, `npm ci`-style reinstall for when the drift runs deeper than a top-level diff can see). yarn and pnpm only offer the full reinstall, since their `add` command always rewrites `package.json`.
+- **Branch-aware.** Murkvan remembers what it last synced per Git branch, so switching back to a branch you've already synced is a no-op — not another round of checks.
+- **npm, yarn, pnpm, and bun** — detected automatically, no configuration needed.
+- **Multi-root and monorepo aware.** Every lockfile in your workspace is tracked as its own project, workspace members included.
+- **Pending changes view.** A tree view in the Explorer sidebar shows exactly what's out of sync — installed version, declared range, and an install action per package, or for everything at once.
+- **Automation, entirely opt-in.** Auto-install everything (`murkvan.autoInstall`), trust individual projects to auto-install ("Always install for this project"), or run a command after every sync (`murkvan.postSyncCommand`) — handy for `prisma generate` or similar.
+- **Arc support.** If Arc is installed, Murkvan also watches its staging area, since Arc doesn't notify ordinary file watchers.
 
-The "Changes detected" notification also offers **Always install for this project**, which installs now and remembers, per project, to skip the prompt on every future sync for that project — independent of the global `murkvan.autoInstall` setting and of any other project in the workspace. **Murkvan: Stop auto-installing for a project** reverts that choice.
-
-One status bar entry summarizes every project at once — the most attention-grabbing status wins, and a pending-changes list is prefixed per project once there is more than one — and progress, detected changes, and logs are all also available through the **Murkvan** output channel.
-
-A **Pending changes** view in the Explorer sidebar lists the same diff in more detail: each package's installed version, declared range, and an inline **Install** action for just that one package, grouped by project once there is more than one open. Its title bar's **Install all** action installs everything currently shown; with nothing pending, it shows "Everything is in sync" instead of an empty tree.
+One status bar entry summarizes every project at once, and progress, detected changes, and logs are all available through the **Murkvan** output channel.
 
 ## Commands
 
