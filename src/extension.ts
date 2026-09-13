@@ -9,7 +9,7 @@ import { getDiff, getPackagesToInstall, type DiffError, type PackageDiff } from 
 import { hashFile } from './hash';
 import { ALL_LOCKFILE_NAMES, detectPackageManager, groupLockfilesByProject } from './packageManager';
 import { aggregateStatus } from './aggregateStatus';
-import { findArcRoot } from './vcs';
+import { findArcRoot, getCurrentBranch } from './vcs';
 
 const {window, workspace, commands} = vscode;
 
@@ -69,8 +69,21 @@ function createProject(
 	const packageManager = detectPackageManager(lockfilePath);
 	const lockfileName = path.basename(lockfilePath);
 	const projectDir = path.dirname(lockfilePath);
-	const hashKey = `${LOCKFILE_HASH_KEY}:${projectDir}`;
 	const prefix = label ? `[${label}] ` : '';
+
+	/**
+	 * The current branch is re-read on every call rather than cached once,
+	 * since a branch change is exactly the event that triggers a check in
+	 * the first place. A non-git project (or `git` missing from `PATH`)
+	 * always gets the same empty branch suffix, so it still ends up with one
+	 * stable key — the exact behavior this project had before branch
+	 * awareness, just under a differently-shaped key.
+	 */
+	function currentHashKey(): string {
+		const branch = getCurrentBranch(projectDir);
+
+		return `${LOCKFILE_HASH_KEY}:${projectDir}:${branch ?? ''}`;
+	}
 
 	let packagesToInstall: string[] = [];
 	let status: Status = 'searching';
@@ -265,6 +278,7 @@ function createProject(
 
 	async function onLockfileChanged(): Promise<void> {
 		const currentHash = await hashFile(lockfilePath);
+		const hashKey = currentHashKey();
 		const previousHash = context.workspaceState.get<string>(hashKey);
 
 		log.info(`${prefix}${lockfileName} hash: ${currentHash}`);
@@ -307,7 +321,7 @@ function createProject(
 	async function initialize(): Promise<void> {
 		const lockfileHash = await hashFile(lockfilePath);
 
-		await context.workspaceState.update(hashKey, lockfileHash);
+		await context.workspaceState.update(currentHashKey(), lockfileHash);
 		log.info(`${prefix}Found ${lockfileName}: ${lockfilePath} (${packageManager.id})`);
 		log.info(`${prefix}${lockfileName} hash: ${lockfileHash}`);
 		setStatus('idle');
