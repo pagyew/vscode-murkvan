@@ -8,6 +8,8 @@ const EXPECTED_COMMANDS = [
 	'murkvan.checkPackages',
 	'murkvan.reinstallAll',
 	'murkvan.stopAutoInstalling',
+	'murkvan.installAllPending',
+	'murkvan.installPendingPackage',
 ];
 
 suite('extension', () => {
@@ -62,5 +64,17 @@ suite('extension', () => {
 	test('stopAutoInstalling reports nothing to do instead of failing', async () => {
 		await vscode.extensions.getExtension(EXTENSION_ID)?.activate();
 		await vscode.commands.executeCommand('murkvan.stopAutoInstalling');
+	});
+
+	test('installAllPending is a no-op without any pending changes', async () => {
+		await vscode.extensions.getExtension(EXTENSION_ID)?.activate();
+		await vscode.commands.executeCommand('murkvan.installAllPending');
+	});
+
+	test('contributes the diff view to the Explorer sidebar', () => {
+		const views: Record<string, Array<{ id: string }>> =
+			vscode.extensions.getExtension(EXTENSION_ID)?.packageJSON.contributes.views ?? {};
+
+		assert.ok(views.explorer?.some(({ id }) => id === 'murkvan.diffView'));
 	});
 });

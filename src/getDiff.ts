@@ -433,10 +433,16 @@ export function getDiff(pathToProject: string, options: DiffOptions = {}): DiffR
 	return getDiffFromLockfiles(pathToProject, options) ?? getDiffFromManifest(pathToProject, manifest, nodeModulesPath, options);
 }
 
+/** A diff with somewhere to actually install to — excludes extraneous packages. */
+export type InstallableDiff = PackageDiff & { declaredVersion: string };
+
+/** Filters out diffs `npm install` (or an equivalent) has nothing to act on. */
+export function getInstallableDiffs(diffs: PackageDiff[]): InstallableDiff[] {
+	return diffs.filter((diff): diff is InstallableDiff =>
+		diff.diffType !== 'extra' && diff.declaredVersion !== undefined);
+}
+
 /** Turns a diff into `name@range` specs that `npm install` understands. */
 export function getPackagesToInstall(diffs: PackageDiff[]): string[] {
-	return diffs
-		.filter((diff): diff is PackageDiff & { declaredVersion: string } =>
-			diff.diffType !== 'extra' && diff.declaredVersion !== undefined)
-		.map(({ packageName, declaredVersion }) => `${packageName}@${declaredVersion}`);
+	return getInstallableDiffs(diffs).map(({ packageName, declaredVersion }) => `${packageName}@${declaredVersion}`);
 }

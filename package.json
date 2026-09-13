@@ -70,8 +70,56 @@
         "command": "murkvan.stopAutoInstalling",
         "title": "Stop auto-installing for a project",
         "category": "Murkvan"
+      },
+      {
+        "command": "murkvan.installAllPending",
+        "title": "Install all pending packages",
+        "category": "Murkvan",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "murkvan.installPendingPackage",
+        "title": "Install",
+        "category": "Murkvan",
+        "icon": "$(cloud-download)"
       }
     ],
+    "views": {
+      "explorer": [
+        {
+          "id": "murkvan.diffView",
+          "name": "Pending changes"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "murkvan.diffView",
+        "contents": "Everything is in sync."
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "murkvan.installPendingPackage",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "murkvan.installAllPending",
+          "when": "view == murkvan.diffView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "murkvan.installPendingPackage",
+          "when": "view == murkvan.diffView && viewItem == murkvan.pendingPackage",
+          "group": "inline"
+        }
+      ]
+    },
     "configuration": {
       "title": "Murkvan",
       "properties": {

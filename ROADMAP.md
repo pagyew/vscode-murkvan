@@ -90,14 +90,26 @@ of the global `murkvan.autoInstall` setting, that skips the prompt for that
 project's future syncs once accepted. **Murkvan: Stop auto-installing for a
 project** reverts it.
 
+A **Pending changes** tree view, contributed into the Explorer sidebar,
+lists the same diff package by package — installed version, declared range,
+and an inline install action for just that one package — grouped by project
+once there is more than one, same as the status bar's own pending list. Its
+view-title **Install all** action installs everything currently shown; an
+empty tree shows "Everything is in sync" via `viewsWelcome`. This required
+extending `Project.installPackages()` to accept an optional subset of
+package names, defaulting to every pending one so every existing call site
+(the command palette, the status bar tooltip link, `autoInstall`) is
+unaffected — and installing one package now leaves the rest pending instead
+of clearing the whole project's diff.
+
 ## Next
 
-Nothing is currently planned beyond what is listed under "Later" below.
+Nothing is currently planned. Every item that was tracked under "Later" has
+shipped; new work starts here when it's proposed.
 
 ## Later
 
-- **Diff view.** A tree view listing pending changes with old/new versions,
-  with install-one and install-all actions, instead of one notification line.
+Nothing currently planned.
 
 ## Engineering debt
 
