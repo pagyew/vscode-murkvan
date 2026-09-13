@@ -1,7 +1,7 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getDiff, getPackagesToInstall, type PackageDiff } from '../../getDiff';
+import { getDiff, getInstallableDiffs, getPackagesToInstall, type PackageDiff } from '../../getDiff';
 import { createProject, removeProjects, writeFile } from '../helpers/fixtures';
 
 function findDiff(diffs: PackageDiff[], packageName: string) {
@@ -593,6 +593,20 @@ suite('getPackagesToInstall', () => {
 
 	test('skips extraneous packages, which have nothing to install', () => {
 		assert.deepStrictEqual(getPackagesToInstall([
+			{ packageName: 'leftover', installedVersion: '9.9.9', diffType: 'extra', changeDirection: 'unknown' },
+		]), []);
+	});
+});
+
+suite('getInstallableDiffs', () => {
+	test('keeps the full diff, not just the name@range spec', () => {
+		const diff: PackageDiff = { packageName: 'lodash', declaredVersion: '^4.17.0', installedVersion: '3.10.1', diffType: 'major', changeDirection: 'upgrade' };
+
+		assert.deepStrictEqual(getInstallableDiffs([diff]), [diff]);
+	});
+
+	test('skips extraneous packages, same as getPackagesToInstall', () => {
+		assert.deepStrictEqual(getInstallableDiffs([
 			{ packageName: 'leftover', installedVersion: '9.9.9', diffType: 'extra', changeDirection: 'unknown' },
 		]), []);
 	});

@@ -43,6 +43,8 @@ The "Changes detected" notification also offers **Always install for this projec
 
 One status bar entry summarizes every project at once — the most attention-grabbing status wins, and a pending-changes list is prefixed per project once there is more than one — and progress, detected changes, and logs are all also available through the **Murkvan** output channel.
 
+A **Pending changes** view in the Explorer sidebar lists the same diff in more detail: each package's installed version, declared range, and an inline **Install** action for just that one package, grouped by project once there is more than one open. Its title bar's **Install all** action installs everything currently shown; with nothing pending, it shows "Everything is in sync" instead of an empty tree.
+
 ## Commands
 
 | Command ID                  | Purpose                                  |
@@ -52,6 +54,7 @@ One status bar entry summarizes every project at once — the most attention-gra
 | `murkvan.checkPackages`     | Compare packages now for every open project, without a lockfile change |
 | `murkvan.reinstallAll`      | Reinstall a project's whole tree from its lockfile (asks which project when more than one is open) |
 | `murkvan.stopAutoInstalling` | Revert an earlier "Always install for this project" choice (asks which project when more than one is open) |
+| `murkvan.installAllPending`  | Install everything shown in the **Pending changes** view |
 
 ## Settings
 

@@ -5,12 +5,13 @@ import chokidar from 'chokidar';
 import { Log } from './log';
 import { StatusBar, type Status } from './statusBar';
 import { getSetting } from './config';
-import { getDiff, getPackagesToInstall, type DiffError, type PackageDiff } from './getDiff';
+import { getDiff, getInstallableDiffs, type DiffError, type InstallableDiff, type PackageDiff } from './getDiff';
 import { hashFile } from './hash';
 import { ALL_LOCKFILE_NAMES, detectPackageManager, groupLockfilesByProject } from './packageManager';
 import { aggregateStatus } from './aggregateStatus';
 import { findArcRoot, getCurrentBranch } from './vcs';
 import { runShellCommand } from './postSync';
+import { DiffTreeProvider, type DiffNode } from './diffView';
 
 const {window, workspace, commands} = vscode;
 
@@ -43,12 +44,19 @@ interface Project {
 	readonly projectDir: string;
 	getStatus(): Status;
 	getPendingPackages(): string[];
+	getPendingDiffs(): InstallableDiff[];
 	/** Runs the discovery + hash-check + watcher setup that used to run once at activation. */
 	initialize(): Promise<void>;
 	checkPackages(): Promise<void>;
-	installPackages(): Promise<void>;
+	/** Installs every pending package by default, or only the named subset when given. */
+	installPackages(packageNames?: string[]): Promise<void>;
 	reinstallAll(): Promise<void>;
 	stopAutoInstalling(): Promise<void>;
+}
+
+/** A diff's `name@range` install spec. */
+function toSpec({ packageName, declaredVersion }: InstallableDiff): string {
+	return `${packageName}@${declaredVersion}`;
 }
 
 /**
@@ -99,7 +107,7 @@ function createProject(
 		await context.workspaceState.update(trustKey, trusted);
 	}
 
-	let packagesToInstall: string[] = [];
+	let pendingDiffs: InstallableDiff[] = [];
 	let status: Status = 'searching';
 	let installation: ChildProcess | undefined;
 	let debounceTimer: NodeJS.Timeout | undefined;
@@ -199,11 +207,22 @@ function createProject(
 		window.showWarningMessage(`${prefix}Post-sync command failed — see the Murkvan output channel for details.`);
 	}
 
-	/** Restores this project's status once an install attempt of either kind settles. */
-	function reportOutcome(outcome: NpmOutcome) {
+	/**
+	 * Restores this project's status once an install attempt of either kind
+	 * settles.
+	 *
+	 * @param installedPackageNames the packages a successful run actually
+	 * installed — `undefined` means all of them, as `reinstallAll` and a
+	 * full `installPackages()` call both do. Anything left over stays
+	 * pending, so installing one package from the diff view doesn't clear
+	 * the rest.
+	 */
+	function reportOutcome(outcome: NpmOutcome, installedPackageNames?: string[]) {
 		if (outcome === 'success') {
-			packagesToInstall = [];
-			setStatus('idle');
+			pendingDiffs = installedPackageNames
+				? pendingDiffs.filter(diff => !installedPackageNames.includes(diff.packageName))
+				: [];
+			setStatus(pendingDiffs.length > 0 ? 'changes' : 'idle');
 			return;
 		}
 
@@ -213,22 +232,27 @@ function createProject(
 		}
 
 		// Cancelling is not an error, so restore whatever was true before the run started.
-		setStatus(packagesToInstall.length > 0 ? 'changes' : 'idle');
+		setStatus(pendingDiffs.length > 0 ? 'changes' : 'idle');
 	}
 
 	/**
-	 * Installs exactly the packages `getDiff` flagged, each pinned to the
-	 * version its diff names — the lockfile's own resolved version when the
-	 * diff came from the fast lockfile-diffing path, since npm's
-	 * `--no-package-lock` (or bun's `--no-save`) stops the manager from
+	 * Installs the packages `getDiff` flagged — every pending one by default,
+	 * or just `packageNames` when the diff view asks for a single package —
+	 * each pinned to the version its diff names, the lockfile's own resolved
+	 * version when the diff came from the fast lockfile-diffing path, since
+	 * npm's `--no-package-lock` (or bun's `--no-save`) stops the manager from
 	 * re-resolving it from a range.
 	 *
 	 * yarn and pnpm have no such flag on `add` — it always rewrites
 	 * `package.json` — so `installArgs` returns `undefined` for them and only
 	 * {@link reinstallAll} is offered.
 	 */
-	async function installPackages(): Promise<void> {
-		if (packagesToInstall.length === 0) {
+	async function installPackages(packageNames?: string[]): Promise<void> {
+		const targets = packageNames
+			? pendingDiffs.filter(diff => packageNames.includes(diff.packageName))
+			: pendingDiffs;
+
+		if (targets.length === 0) {
 			window.showInformationMessage(`${prefix}Nothing to install — packages are in sync.`);
 			return;
 		}
@@ -238,7 +262,8 @@ function createProject(
 			return;
 		}
 
-		const args = packageManager.installArgs(packagesToInstall);
+		const specs = targets.map(toSpec);
+		const args = packageManager.installArgs(specs);
 
 		if (!args) {
 			window.showInformationMessage(
@@ -247,9 +272,9 @@ function createProject(
 			return;
 		}
 
-		const outcome = await runPackageManager(args, 'Packages syncing', packagesToInstall.length);
+		const outcome = await runPackageManager(args, 'Packages syncing', specs.length);
 
-		reportOutcome(outcome);
+		reportOutcome(outcome, targets.map(diff => diff.packageName));
 
 		if (outcome === 'success') {
 			await runPostSync();
@@ -294,9 +319,9 @@ function createProject(
 			return;
 		}
 
-		packagesToInstall = getPackagesToInstall(diffs);
+		pendingDiffs = getInstallableDiffs(diffs);
 
-		if (packagesToInstall.length === 0) {
+		if (pendingDiffs.length === 0) {
 			log.info(`${prefix}Installed packages are in sync with package.json`);
 			setStatus('idle');
 			return;
@@ -307,7 +332,7 @@ function createProject(
 
 		// yarn and pnpm have no way to install specific packages without
 		// rewriting package.json, so only a full reinstall is available.
-		const canTargetInstall = packageManager.installArgs(packagesToInstall) !== undefined;
+		const canTargetInstall = packageManager.installArgs(pendingDiffs.map(toSpec)) !== undefined;
 
 		if (getSetting('autoInstall', false) || isProjectTrusted()) {
 			await (canTargetInstall ? installPackages() : reinstallAll());
@@ -318,7 +343,7 @@ function createProject(
 		const reinstall = 'Reinstall everything';
 		const alwaysInstall = 'Always install for this project';
 		const selection = await window.showInformationMessage(
-			`${prefix}Changes detected: ${packagesToInstall.join(' • ')}`,
+			`${prefix}Changes detected: ${pendingDiffs.map(toSpec).join(' • ')}`,
 			...(canTargetInstall ? [install, reinstall, alwaysInstall] : [reinstall, alwaysInstall])
 		);
 
@@ -414,7 +439,8 @@ function createProject(
 	return {
 		projectDir,
 		getStatus: () => status,
-		getPendingPackages: () => packagesToInstall,
+		getPendingPackages: () => pendingDiffs.map(toSpec),
+		getPendingDiffs: () => pendingDiffs,
 		initialize,
 		checkPackages,
 		installPackages,
@@ -432,8 +458,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	const log = new Log();
 	const statusBar = new StatusBar(extensionName);
+	const diffTreeProvider = new DiffTreeProvider(projects);
 
-	/** Recomputes the one shared status bar entry from every project's own state. */
+	/** Recomputes the one shared status bar entry and the diff view from every project's own state. */
 	function refreshStatusBar() {
 		const { status, packages } = aggregateStatus(projects.map(project => ({
 			label: path.basename(project.projectDir),
@@ -442,6 +469,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		})));
 
 		statusBar.updateStatus(status, packages);
+		diffTreeProvider.refresh();
 	}
 
 	/**
@@ -503,6 +531,9 @@ export async function activate(context: vscode.ExtensionContext) {
 		commands.registerCommand(`${extensionId}.stopAutoInstalling`, async () => {
 			await (await resolveTargetProject())?.stopAutoInstalling();
 		}),
+		vscode.window.registerTreeDataProvider(`${extensionId}.diffView`, diffTreeProvider),
+		commands.registerCommand(`${extensionId}.installAllPending`, () => diffTreeProvider.installAll()),
+		commands.registerCommand(`${extensionId}.installPendingPackage`, (node?: DiffNode) => diffTreeProvider.installNode(node)),
 	);
 
 	/**
