@@ -7,6 +7,7 @@ const EXPECTED_COMMANDS = [
 	'murkvan.installPackages',
 	'murkvan.checkPackages',
 	'murkvan.reinstallAll',
+	'murkvan.stopAutoInstalling',
 ];
 
 suite('extension', () => {
@@ -56,5 +57,10 @@ suite('extension', () => {
 	test('checkPackages is a no-op without a lockfile', async () => {
 		await vscode.extensions.getExtension(EXTENSION_ID)?.activate();
 		await vscode.commands.executeCommand('murkvan.checkPackages');
+	});
+
+	test('stopAutoInstalling reports nothing to do instead of failing', async () => {
+		await vscode.extensions.getExtension(EXTENSION_ID)?.activate();
+		await vscode.commands.executeCommand('murkvan.stopAutoInstalling');
 	});
 });

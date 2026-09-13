@@ -84,6 +84,12 @@ step a targeted install doesn't retrigger on its own. A non-zero exit is
 logged and shown as a warning rather than an error, since the sync itself
 already succeeded.
 
+The "Changes detected" notification also offers "Always install for this
+project" alongside Install/Reinstall — a per-project trust flag, independent
+of the global `murkvan.autoInstall` setting, that skips the prompt for that
+project's future syncs once accepted. **Murkvan: Stop auto-installing for a
+project** reverts it.
+
 ## Next
 
 Nothing is currently planned beyond what is listed under "Later" below.
@@ -92,8 +98,6 @@ Nothing is currently planned beyond what is listed under "Later" below.
 
 - **Diff view.** A tree view listing pending changes with old/new versions,
   with install-one and install-all actions, instead of one notification line.
-- **Per-project trust.** `autoInstall` is all-or-nothing; a workspace-level
-  prompt ("always sync this project") is friendlier than a global setting.
 
 ## Engineering debt
 

@@ -65,6 +65,11 @@
         "command": "murkvan.reinstallAll",
         "title": "Reinstall all packages",
         "category": "Murkvan"
+      },
+      {
+        "command": "murkvan.stopAutoInstalling",
+        "title": "Stop auto-installing for a project",
+        "category": "Murkvan"
       }
     ],
     "configuration": {
