@@ -15,6 +15,7 @@ import { runShellCommand } from './postSync';
 const {window, workspace, commands} = vscode;
 
 const LOCKFILE_HASH_KEY = 'lockfileHash';
+const AUTO_INSTALL_TRUST_KEY = 'autoInstallTrust';
 /** Git and npm rewrite the lockfile in bursts; collapse them into one check. */
 const CHANGE_DEBOUNCE_MS = 300;
 /** Arc mounts its store over FUSE, where native watchers stay silent. */
@@ -47,6 +48,7 @@ interface Project {
 	checkPackages(): Promise<void>;
 	installPackages(): Promise<void>;
 	reinstallAll(): Promise<void>;
+	stopAutoInstalling(): Promise<void>;
 }
 
 /**
@@ -84,6 +86,17 @@ function createProject(
 		const branch = getCurrentBranch(projectDir);
 
 		return `${LOCKFILE_HASH_KEY}:${projectDir}:${branch ?? ''}`;
+	}
+
+	const trustKey = `${AUTO_INSTALL_TRUST_KEY}:${projectDir}`;
+
+	/** Whether this specific project was told to always auto-install, independent of the global `autoInstall` setting. */
+	function isProjectTrusted(): boolean {
+		return context.workspaceState.get<boolean>(trustKey, false);
+	}
+
+	async function setProjectTrusted(trusted: boolean): Promise<void> {
+		await context.workspaceState.update(trustKey, trusted);
 	}
 
 	let packagesToInstall: string[] = [];
@@ -296,23 +309,35 @@ function createProject(
 		// rewriting package.json, so only a full reinstall is available.
 		const canTargetInstall = packageManager.installArgs(packagesToInstall) !== undefined;
 
-		if (getSetting('autoInstall', false)) {
+		if (getSetting('autoInstall', false) || isProjectTrusted()) {
 			await (canTargetInstall ? installPackages() : reinstallAll());
 			return;
 		}
 
 		const install = 'Install packages';
 		const reinstall = 'Reinstall everything';
+		const alwaysInstall = 'Always install for this project';
 		const selection = await window.showInformationMessage(
 			`${prefix}Changes detected: ${packagesToInstall.join(' • ')}`,
-			...(canTargetInstall ? [install, reinstall] : [reinstall])
+			...(canTargetInstall ? [install, reinstall, alwaysInstall] : [reinstall, alwaysInstall])
 		);
 
 		if (selection === install) {
 			await installPackages();
 		} else if (selection === reinstall) {
 			await reinstallAll();
+		} else if (selection === alwaysInstall) {
+			await setProjectTrusted(true);
+			log.info(`${prefix}Always installing for this project from now on — run "Stop auto-installing" to undo`);
+			await (canTargetInstall ? installPackages() : reinstallAll());
 		}
+	}
+
+	/** Reverts an earlier "Always install for this project" choice. */
+	async function stopAutoInstalling(): Promise<void> {
+		await setProjectTrusted(false);
+		log.info(`${prefix}Stopped auto-installing for this project`);
+		window.showInformationMessage(`${prefix}Stopped auto-installing for this project.`);
 	}
 
 	async function onLockfileChanged(): Promise<void> {
@@ -394,6 +419,7 @@ function createProject(
 		checkPackages,
 		installPackages,
 		reinstallAll,
+		stopAutoInstalling,
 	};
 }
 
@@ -473,6 +499,9 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 		commands.registerCommand(`${extensionId}.reinstallAll`, async () => {
 			await (await resolveTargetProject())?.reinstallAll();
+		}),
+		commands.registerCommand(`${extensionId}.stopAutoInstalling`, async () => {
+			await (await resolveTargetProject())?.stopAutoInstalling();
 		}),
 	);
 

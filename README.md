@@ -39,6 +39,8 @@ Or search for **Murkvan** in the VS Code Extensions panel.
 5. Offers **Install packages**, which installs pinned to the exact versions the diff named without touching `package.json` or the lockfile (`npm i --no-package-lock --no-save` / `bun add --no-save`), or **Reinstall everything**, which reinstalls the whole tree straight from the lockfile (`npm ci` / `pnpm install --frozen-lockfile` / `yarn install --frozen-lockfile` / `bun install --frozen-lockfile`) — the sledgehammer for when the drift is large or reaches into nested/duplicated dependencies a top-level diff can't see. yarn's and pnpm's `add` always rewrite `package.json`, so for those two only **Reinstall everything** is offered. With more than one project open, either command asks which one to act on first.
 6. After a successful sync, runs `murkvan.postSyncCommand` (if set) in that project's directory — for a `prisma generate` or a codegen step that a targeted install doesn't retrigger on its own. A non-zero exit is logged and shown as a warning, not an error, since the sync itself already succeeded.
 
+The "Changes detected" notification also offers **Always install for this project**, which installs now and remembers, per project, to skip the prompt on every future sync for that project — independent of the global `murkvan.autoInstall` setting and of any other project in the workspace. **Murkvan: Stop auto-installing for a project** reverts that choice.
+
 One status bar entry summarizes every project at once — the most attention-grabbing status wins, and a pending-changes list is prefixed per project once there is more than one — and progress, detected changes, and logs are all also available through the **Murkvan** output channel.
 
 ## Commands
@@ -49,6 +51,7 @@ One status bar entry summarizes every project at once — the most attention-gra
 | `murkvan.installPackages`   | Install the pending package changes (asks which project when more than one is open) |
 | `murkvan.checkPackages`     | Compare packages now for every open project, without a lockfile change |
 | `murkvan.reinstallAll`      | Reinstall a project's whole tree from its lockfile (asks which project when more than one is open) |
+| `murkvan.stopAutoInstalling` | Revert an earlier "Always install for this project" choice (asks which project when more than one is open) |
 
 ## Settings
 
