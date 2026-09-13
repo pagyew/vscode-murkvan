@@ -72,14 +72,18 @@ involved (`Packages synced in 4.2s (3 packages)`, or `(reinstalled
 everything)` for a full reinstall) — telemetry for the developer reading the
 output channel, not for anyone else.
 
+The remembered lockfile hash is keyed by Git branch (`getCurrentBranch` in
+`src/vcs.ts`, read fresh on every check rather than cached), so checking out
+a branch already synced is a no-op instead of a re-check; a non-git project,
+or one where `git` isn't on `PATH`, still remembers a single hash for the
+whole project, exactly as before branches were tracked.
+
 ## Next
 
 Nothing is currently planned beyond what is listed under "Later" below.
 
 ## Later
 
-- **Branch-aware state.** Remember the lockfile hash per branch, so switching
-  back to a branch you already synced is a no-op instead of a re-check.
 - **Diff view.** A tree view listing pending changes with old/new versions,
   with install-one and install-all actions, instead of one notification line.
 - **Per-project trust.** `autoInstall` is all-or-nothing; a workspace-level
